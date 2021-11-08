@@ -18,12 +18,14 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    pub fn new(asm_path: &'static str) -> Result<Interpreter, io::Error> {
+    pub fn new(asm_path: &'static str) -> io::Result<Interpreter> {
         let mut file = File::open(asm_path)?;
         let metadata = file.metadata().expect("unable to read metadata");
         let mut image = vec![0; metadata.len() as usize];
         file.read(&mut image).expect("Error reading assembly, overflow.");
-        let metadata = Metadata::new(&mut image);
+        let pe = PE::new(&image)?;
+
+        let metadata = Metadata::new(&image);
         file.seek(SeekFrom::Start(0x254)).expect("Can't seek to Entry Point.");
 
         Ok(Interpreter {

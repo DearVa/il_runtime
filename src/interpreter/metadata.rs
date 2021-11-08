@@ -1,9 +1,16 @@
 mod flag_info;
 use flag_info::*;
+mod image_reader;
+use image_reader::*;
+mod image_option_header;
+use image_option_header::*;
+mod image_section_header;
+use image_section_header::*;
 
 use std::collections::HashMap;
 use std::io;
 use std::convert::TryInto;
+
 
 pub struct Method {
     pub token: u32,         // 和字典Key一致
@@ -24,8 +31,7 @@ pub struct Method {
 }
 
 impl Method {
-    // 读取Assembly的元数据
-    pub fn read_methods(image: &Vec<u8>, count: usize) -> Result<HashMap<u32, Method>, io::Error> {
+    pub fn read_methods(image: &Vec<u8>, count: usize) -> io::Result<HashMap<u32, Method>> {
         let mut methods = HashMap::new();
         let mut offset: usize = 0x3C2;  // 定位到Methods位置,目前这是通过16进制编辑器定位的
         for i in 0..count {
@@ -90,7 +96,7 @@ impl Method {
         Ok(methods)
     }
 
-    pub fn has_impl_flag_info(flag: u16, flag_info: ImplAttrFlagInfo) -> bool {
+    pub fn check_impl_flag_info(flag: u16, flag_info: ImplAttrFlagInfo) -> bool {
         match flag_info {
             ImplAttrFlagInfo::CodeType(t) => {
                 flag & 0x0003 & (t as u16) != 0
@@ -113,7 +119,7 @@ pub struct Param {
 }
 
 impl Param {
-    pub fn read_params(image: &Vec<u8>, count: usize) -> Result<HashMap<u32, Param>, io::Error> {
+    pub fn read_params(image: &Vec<u8>, count: usize) -> io::Result<HashMap<u32, Param>> {
         let mut params = HashMap::new();
         let mut offset: usize = 0x3EC;  // 定位到Params位置,目前这是通过16进制编辑器定位的
         for i in 0..count {
@@ -131,7 +137,78 @@ impl Param {
     }
 }
 
-mod PE {
+pub struct PE {
+    nt_headers_offset: usize,
+    machine: u16,
+    num_of_sections: u16,
+    timestamp: u32,
+    pointer_to_symbol_table: u32,
+    num_of_symbols: u32,
+    size_of_optional_header: u16,
+    characteristics: u16,
+    image_option_header: ImageOptionHeader,
+    image_section_headers: Vec<ImageSectionHeader>,
+}
+
+impl PE {
+    pub fn new(image: &Vec<u8>) -> io::Result<PE> {
+        let mut reader = ImageReader::new(image);
+        // 读DOS头
+        let pe_sig = reader.read_u16()?;
+        if pe_sig != 0x5A4D {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid DOS signature"));
+        }
+        reader.set_position(0x3C)?;
+        let nt_headers_offset = reader.read_u32()? as usize;
+        
+        // 读NT头
+        reader.set_position(nt_headers_offset)?;
+        let nt_headers_sig = reader.read_u32()?;
+        if nt_headers_sig != 0x4550 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid NT headers signature"));
+        }
+        let machine = reader.read_u16()?;
+        let mut num_of_sections = reader.read_u16()?;
+        let timestamp = reader.read_u32()?;
+        let pointer_to_symbol_table  = reader.read_u32()?;
+        let num_of_symbols = reader.read_u32()?;
+        let size_of_optional_header = reader.read_u16()?;
+        let characteristics = reader.read_u16()?;
+        if size_of_optional_header == 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid SizeOfOptionalHeader"));
+        }
+
+        // 读optional_header
+        let image_option_header = ImageOptionHeader::new(&mut reader, size_of_optional_header as u32)?;
+        
+        // 读secions
+        reader.set_position(image_option_header.start_offset + size_of_optional_header as usize)?;
+        if num_of_sections > 0 {
+            let position = reader.get_position();
+            reader.advance(0x14)?;
+            let first_section_offset = reader.read_u32()? as usize;
+            num_of_sections = u16::min(((first_section_offset - reader.get_position()) / 0x28) as u16, num_of_sections);
+            reader.set_position(position)?;
+        }
+        let mut image_section_headers = Vec::with_capacity(num_of_sections as usize);
+        for _ in 0..num_of_sections {
+            image_section_headers.push(ImageSectionHeader::new(&mut reader)?);
+        }
+
+        Ok(PE {
+            nt_headers_offset,
+            machine,
+            num_of_sections,
+            timestamp,
+            pointer_to_symbol_table,
+            num_of_symbols,
+            size_of_optional_header,
+            characteristics,
+            image_option_header,
+            image_section_headers,
+        })
+    }
+
     pub fn get_file_offset(rva: u32) -> usize {
         (rva - 8192 + 512) as usize  // TODO: 根据PE文件的偏移量计算
     }
@@ -143,6 +220,7 @@ pub struct Metadata {
 }
 
 impl Metadata {
+    // 读取Assembly的元数据
     pub fn new(mut image: &Vec<u8>) -> Metadata {
         Metadata {
             methods: Method::read_methods(&mut image, 3).unwrap(),  // TODO: 目前是3个
