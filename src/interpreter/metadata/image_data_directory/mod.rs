@@ -1,0 +1,19 @@
+use std::io;
+use crate::interpreter::image_reader::ImageReader;
+
+#[derive(Default, Copy, Clone)]
+pub struct ImageDataDirectory {
+    pub virtual_address: u32,
+    pub size: u32,
+}
+
+impl ImageDataDirectory {
+    pub fn new(reader: &mut ImageReader) -> Result<ImageDataDirectory, io::Error> {
+        let virtual_address = reader.read_u32()?;
+        let size = reader.read_u32()?;
+        Ok(ImageDataDirectory {
+            virtual_address,
+            size,
+        })
+    }
+}

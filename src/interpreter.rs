@@ -1,6 +1,5 @@
-use std::fs::File;
 use std::io;
-use std::io::SeekFrom;
+use std::fs::File;
 use std::io::prelude::*;
 use std::collections::VecDeque;
 use num_traits::FromPrimitive;
@@ -8,13 +7,16 @@ use std::convert::TryInto;
 use colored::*;
 
 mod op_codes;
-mod metadata;
 use op_codes::*;
+mod image_reader;
+use image_reader::*;
+mod metadata;
 use metadata::*;
 
 pub struct Interpreter {
-    image: Vec<u8>,  // 映像，一次性读取
-    metadata: Metadata,
+    pub image: Vec<u8>,    // 映像，一次性读取
+    pub pe: PE,
+    pub metadata: Metadata,
 }
 
 impl Interpreter {
@@ -23,13 +25,12 @@ impl Interpreter {
         let metadata = file.metadata().expect("unable to read metadata");
         let mut image = vec![0; metadata.len() as usize];
         file.read(&mut image).expect("Error reading assembly, overflow.");
-        let pe = PE::new(&image)?;
-
-        let metadata = Metadata::new(&image);
-        file.seek(SeekFrom::Start(0x254)).expect("Can't seek to Entry Point.");
-
+        let mut reader = ImageReader::new(&image);
+        let pe = PE::new(&mut reader)?;
+        let metadata = Metadata::new(&pe, &mut reader)?;
         Ok(Interpreter {
             image: image,
+            pe,
             metadata,
         })
     }
@@ -42,7 +43,7 @@ impl Interpreter {
         self.il_call(main, &mut stack);
     }
 
-    fn il_call(&self, method: &metadata::Method, stack: &mut VecDeque<i32>) {
+    fn il_call(&self, method: &Method, stack: &mut VecDeque<i32>) {
         let param_count = self.metadata.get_param_count(method) as usize;
         let mut params = vec![0i32; param_count];
         for i in 0..param_count {

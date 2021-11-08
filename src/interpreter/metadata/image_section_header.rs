@@ -1,5 +1,5 @@
 use std::io;
-use super::image_reader::*;
+use super::super::ImageReader;
 
 #[derive(Debug, Copy, Clone)]
 pub struct ImageSectionHeader {

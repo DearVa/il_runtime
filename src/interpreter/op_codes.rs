@@ -1,6 +1,7 @@
 use num_derive::FromPrimitive;
 
 // 单字节的OpCode
+#[repr(u8)]
 #[derive(FromPrimitive)]
 pub enum OpCode {
     Nop,

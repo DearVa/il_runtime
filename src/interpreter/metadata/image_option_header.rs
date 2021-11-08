@@ -1,22 +1,7 @@
 use std::io;
-use super::image_reader::*;
+use super::super::ImageReader;
 
-#[derive(Default, Copy, Clone)]
-pub struct ImageDataDirectory {
-    pub virtual_address: u32,
-    pub size: u32,
-}
-
-impl ImageDataDirectory {
-    pub fn new(reader: &mut ImageReader) -> Result<ImageDataDirectory, io::Error> {
-        let virtual_address = reader.read_u32()?;
-        let size = reader.read_u32()?;
-        Ok(ImageDataDirectory {
-            virtual_address,
-            size,
-        })
-    }
-}
+use crate::interpreter::metadata::image_data_directory::ImageDataDirectory;
 
 const DATA_DIR_COUNT: usize = 16;
 
@@ -52,7 +37,7 @@ pub struct ImageOptionHeader {
     pub size_of_heap_commit: u64,
     pub loader_flags: u32,
     pub number_of_rva_and_sizes: u32,
-    pub data_directory: [ImageDataDirectory; DATA_DIR_COUNT],
+    pub data_directories: [ImageDataDirectory; DATA_DIR_COUNT],
 }
 
 impl ImageOptionHeader {
@@ -77,7 +62,7 @@ impl ImageOptionHeader {
         }
         Ok(ImageOptionHeader {
             start_offset,
-            magic: reader.read_u16()?,
+            magic,
             major_linker_version: reader.read_u8()?,
             minor_linker_version: reader.read_u8()?,
             size_of_code: reader.read_u32()?,
@@ -85,13 +70,7 @@ impl ImageOptionHeader {
             size_of_uninitialized_data: reader.read_u32()?,
             address_of_entry_point: reader.read_u32()?,
             base_of_code: reader.read_u32()?,
-            base_of_data: {
-                if is64 {
-                    reader.read_u32()?
-                } else {
-                    0
-                }
-            },
+            base_of_data: 0,
             image_base: reader.read_u64()?,
             section_alignment: reader.read_u32()?,
             file_alignment: reader.read_u32()?,
@@ -113,7 +92,7 @@ impl ImageOptionHeader {
             size_of_heap_commit: reader.read_u64()?,
             loader_flags: reader.read_u32()?,
             number_of_rva_and_sizes: reader.read_u32()?,
-            data_directory: {
+            data_directories: {
                 let mut data_directories = [Default::default(); DATA_DIR_COUNT];
                 for i in 0..DATA_DIR_COUNT {
                     let len = reader.get_position() - start_offset;

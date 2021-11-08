@@ -72,4 +72,18 @@ impl ImageReader<'_> {
         self.position += array.len();
         Ok(())
     }
+
+    pub fn read_string(&mut self, max_length: usize) -> io::Result<String> {
+        self.check_position(max_length)?;
+        let mut string = String::new();
+        for i in 0..max_length {
+            let c = self.image[self.position + i];
+            if c == 0 {
+                break;
+            }
+            string.push(c as char);
+        }
+        self.position += max_length;
+        Ok(string)
+    }
 }
