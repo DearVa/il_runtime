@@ -1,7 +1,7 @@
 use std::io;
 use crate::interpreter::image_reader::ImageReader;
 
-#[derive(Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone)]
 pub struct ImageDataDirectory {
     pub virtual_address: u32,
     pub size: u32,

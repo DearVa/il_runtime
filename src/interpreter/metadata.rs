@@ -11,12 +11,15 @@ mod metadata_header;
 use metadata_header::*;
 mod table_stream;
 use table_stream::*;
+mod strings_stream;
+use strings_stream::*;
 use super::ImageReader;
 
 use std::collections::HashMap;
 use std::io;
 use std::convert::TryInto;
 
+#[derive(Debug)]
 pub struct PE {
     nt_headers_offset: usize,
     machine: u16,
@@ -98,44 +101,41 @@ impl PE {
     }
 }
 
+#[derive(Debug)]
 pub struct Method {
     pub token: u32,         // 和字典Key一致
-    //pub offset: usize,      // 该条Metadata在image中的偏移
     pub rva: u32,           // 函数入口在image中的偏移
     pub impl_flags: u16,    // 实现标志
-    pub flags: u16,         // 函数标志
-    pub name: u16,          // 函数名
+    pub flags: u16,         // 函数标志，这和MDTable中的flag不同
+    pub name: String,       // 函数名
     pub signature: u16,     // 签名
-    pub param_list: u16,    // 参数列表
-    pub info: String,       // 函数信息
+    pub param_list: u16,    // 参数列表，需要在StringsStream查找
 
     pub max_stack: u16,     // 最大堆栈大小
     pub header_size: u8,    // 函数头大小
     pub code_size: u32,     // 代码大小
+    pub local_var_sig_token: u32,   // 局部变量Signature
 
-    pub code_offset: usize, // IL指令在文件中的真实位置
+    pub header_position: usize,     // MethodHeader在Image中的真实位置
+    pub code_position: usize,       // IL指令在Image中的真实位置
 }
 
 impl Method {
-    pub fn read_methods(pe: &PE, reader: &mut ImageReader, count: usize) -> io::Result<HashMap<u32, Method>> {
+    pub fn read_methods(pe: &PE, table_stream: &TableStream, strings_stream: &StringsStream, reader: &mut ImageReader) -> io::Result<HashMap<u32, Method>> {
         let mut methods = HashMap::new();
-        reader.set_position(0x3C2);  // 定位到Methods位置,目前这是通过16进制编辑器定位的
-        for i in 0..count {
-            let mut buf = [0u8; 14];
-            reader.read_bytes(&mut buf)?;
+        let method_table = &table_stream.md_tables[6];
+        for i in 0..method_table.row_count {
             let token = 0x06000001 + i as u32;
-            let rva = u32::from_le_bytes(buf[0..4].try_into().unwrap());
+            let rva = method_table.columns[0].get_cell_u32(i);
+            let header_position = pe.rva_to_file_offset(rva);
+            reader.set_position(header_position)?;
 
-            // 读取头部信息
             let mut flags: u16;
             let header_size: u8;
             let code_size: u32;
             let max_stack: u16;
             let local_var_sig_token: u32;
-
-            let header_start = pe.rva_to_file_offset(rva);
-            reader.set_position(header_start);
-            let b = reader.read_u16()? & 7;
+            let b = reader.read_u8()? & 7;
             match b {
                 2 | 6 => {  // Tiny header. [7:2] = code size, max stack is 8, no locals or exception handlers
                     flags = 2;
@@ -145,17 +145,17 @@ impl Method {
                     header_size = 1;
                 },
                 3 => {  // Fat header. Can have locals and exception handlers
-                    let mut header_buf = [0u8; 11];
-                    reader.read_bytes(&mut header_buf)?;
-                    flags = (header_buf[0] as u16) << 8;
+                    flags = (reader.read_u8()? as u16) << 8;
                     header_size = 4 * (flags >> 12) as u8;
-                    max_stack = u16::from_le_bytes(header_buf[1..3].try_into().unwrap());
-                    code_size = u32::from_le_bytes(header_buf[3..7].try_into().unwrap());
-                    local_var_sig_token = u32::from_le_bytes(header_buf[7..11].try_into().unwrap());
+                    max_stack = reader.read_u16()?;
+                    code_size = reader.read_u32()?;
+                    local_var_sig_token = reader.read_u32()?;
                     
                     // The CLR allows the code to start inside the method header. But if it does,
 				    // the CLR doesn't read any exceptions.
-                    if (header_size < 12) {
+                    reader.back(12)?;
+                    reader.advance(header_size as usize)?;
+                    if header_size < 12 {
                         flags &= 0xFFF7;
                     }
                 },
@@ -166,21 +166,21 @@ impl Method {
 
             methods.insert(token, Method {
                 token,
-                //offset,
                 rva,
-                impl_flags: u16::from_le_bytes(buf[4..6].try_into().unwrap()),
-                flags: u16::from_le_bytes(buf[6..8].try_into().unwrap()),
-                name: u16::from_le_bytes(buf[8..10].try_into().unwrap()),
-                signature: u16::from_le_bytes(buf[10..12].try_into().unwrap()),
-                param_list: u16::from_le_bytes(buf[12..14].try_into().unwrap()),
-                info: String::new(),
+                impl_flags: method_table.columns[1].get_cell_u16(i),
+                flags,
+                name: strings_stream.get_string(method_table.columns[3].get_cell_u16(i) as u32).clone(),
+                signature: method_table.columns[4].get_cell_u16(i),
+                param_list: method_table.columns[5].get_cell_u16(i),
 
                 max_stack,
                 header_size,
                 code_size,
-                code_offset: header_start + header_size as usize,
+                local_var_sig_token,
+
+                header_position,
+                code_position: header_position + header_size as usize,
             });
-            //offset += 14;
         }
         Ok(methods)
     }
@@ -234,6 +234,7 @@ enum MetadataType {
 }
 
 pub struct Metadata {
+    pub strings_stream: StringsStream,
     pub table_stream: TableStream,
     pub methods: HashMap<u32, Method>,  // <token(0x06000001...), Method>
     pub params: HashMap<u32, Param>,    // <token(0x08000001...), Param>
@@ -254,15 +255,23 @@ impl Metadata {
         }
         reader.set_position(pe.rva_to_file_offset(md_rva))?;
         let md_header = MetadataHeader::new(reader)?;
+
+        let mut strings_stream = Default::default();
+        let mut strings_stream_loaded = false;
         let mut table_stream = Default::default();
         let mut table_stream_loaded = false;
+
         match Metadata::get_metadata_type(&md_header.stream_headers) {
             Ok(MetadataType::Compressed) => {
                 let metadata_base_offset = pe.rva_to_file_offset(cor20_header.metadata.virtual_address);
                 for sh in md_header.stream_headers.iter().rev() {
                     match sh.name.as_str() {
                         "#Strings" => {
-
+                            if !strings_stream_loaded {
+                                reader.set_position(metadata_base_offset + sh.offset as usize)?;
+                                strings_stream = StringsStream::new(reader, sh.size)?;
+                                strings_stream_loaded = true;
+                            }
                         },
                         "#US" => {
 
@@ -298,9 +307,15 @@ impl Metadata {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "No #~ stream found"));
         }
 
+        let methods = Method::read_methods(pe, &table_stream, &strings_stream, reader)?;
+        println!("{:?}", methods.get(&0x06000001).unwrap());
+        println!("{:?}", methods.get(&0x06000002).unwrap());
+        println!("{:?}", methods.get(&0x06000003).unwrap());
+
         Ok(Metadata {
+            strings_stream,
             table_stream,
-            methods: Method::read_methods(pe, reader, 3)?,  // TODO: 目前是3个
+            methods,
             params: Param::read_params(reader, 2)?,     // TODO: 目前是2个
         })
     }

@@ -55,7 +55,7 @@ impl Interpreter {
         let mut local2: i32 = 0;
         let mut local3: i32 = 0;
 
-        let mut rip = method.code_offset;  // 当前函数指针
+        let mut rip = method.code_position;  // 当前函数指针
         loop {
             let op = FromPrimitive::from_u8(self.image[rip]);
             rip += 1;

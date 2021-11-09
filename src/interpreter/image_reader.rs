@@ -16,10 +16,7 @@ impl ImageReader<'_> {
 
     fn check_position(&self, size: usize) -> io::Result<()> {
         if self.position + size > self.image.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Unexpected end of image",
-            ));
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Unexpected end of image"));
         }
         Ok(())
     }
@@ -34,8 +31,17 @@ impl ImageReader<'_> {
     }
 
     pub fn advance(&mut self, size: usize) -> io::Result<()> {
+        self.check_position(size)?;
         self.position += size;
-        self.check_position(size)
+        Ok(())
+    }
+
+    pub fn back(&mut self, size: usize) -> io::Result<()> {
+        if self.position < size {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Unexpected ahead of image"));
+        }
+        self.position -= size;
+        Ok(())
     }
 
     pub fn read_u8(&mut self) -> io::Result<u8> {
@@ -73,6 +79,13 @@ impl ImageReader<'_> {
         Ok(())
     }
 
+    pub fn read_bytes_exact(&mut self, array: &mut [u8], length: usize) -> io::Result<()> {
+        self.check_position(length)?;
+        array[..length].copy_from_slice(&self.image[self.position..self.position + length]);
+        self.position += length;
+        Ok(())
+    }
+
     pub fn read_string(&mut self, max_length: usize) -> io::Result<String> {
         self.check_position(max_length)?;
         let mut string = String::new();
@@ -84,6 +97,25 @@ impl ImageReader<'_> {
             string.push(c as char);
         }
         self.position += max_length;
+        Ok(string)
+    }
+
+    pub fn read_string_to_0(&mut self) -> io::Result<String> {
+        let mut bytes_left = self.image.len() - self.position;
+        let mut string = String::new();
+        loop {
+            let c = self.image[self.position];
+            if c == 0 {
+                break;
+            }
+            string.push(c as char);
+            bytes_left -= 1;
+            if bytes_left == 0 {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Unexpected end of image"));
+            }
+            self.position += 1;
+        }
+        self.position += 1;
         Ok(string)
     }
 }
