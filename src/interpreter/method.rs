@@ -72,7 +72,7 @@ impl Method {
                 flags,
                 name: metadata.strings_stream.get_string(method_table.columns[3].get_cell_u16(row) as u32).clone(),
                 signature: method_table.columns[4].get_cell_u16(row),
-                param_list: metadata.get_param_rid_list(method_table.columns[5].get_cell_u16(row) as u32),
+                param_list: metadata.get_param_rid_list(row + 1),
 
                 max_stack,
                 header_size,

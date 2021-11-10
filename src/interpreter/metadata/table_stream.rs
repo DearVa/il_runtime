@@ -344,17 +344,11 @@ impl MDColumn {
         }
         match self.size {
             2 => {
-                if !self.check_rid(rid + 2) {
-                    return false;
-                }
-                *result = self.get_cell_u16(rid - 1).clone() as u32;
+                *result = self.get_cell_u16(rid - 1) as u32;
                 true
             },
             4 => {
-                if !self.check_rid(rid + 4) {
-                    return false;
-                }
-                *result = self.get_cell_u32(rid - 1).clone();
+                *result = self.get_cell_u32(rid - 1);
                 true
             },
             _ => false,

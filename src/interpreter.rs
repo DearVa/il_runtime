@@ -36,14 +36,13 @@ impl Interpreter {
         let metadata = Metadata::new(&pe, &mut reader)?;
 
         let methods = Method::read_methods(&pe, &metadata, &mut reader)?;
-
         println!("Methods:");
         for method in methods.iter() {
             println!("{:?}", method.1);
         }
 
-        println!("\nParams:");
         let params = Param::read_params(&metadata)?;
+        println!("\nParams:");
         for param in params.iter() {
             println!("{:?}", param.1);
         }
