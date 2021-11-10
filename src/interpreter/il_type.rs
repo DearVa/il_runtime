@@ -1,4 +1,4 @@
-use std::ops::Add;
+use std::ops::{Add, Sub};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ILValType {
@@ -67,32 +67,38 @@ impl Add for ILType {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        match self {
-            ILType::Val(v1) => match v1 {
-                ILValType::Boolean(_) => panic!("bool can't be added"),
-                ILValType::Char(_) => panic!("char can't be added"),
-                ILValType::Int32(i1) => match other {
-                    ILType::Val(v2) => match v2 {
-                        ILValType::Boolean(_) => panic!("bool can't be added"),
-                        ILValType::Char(_) => panic!("char can't be added"),
-                        ILValType::Int32(i2) => ILType::Val(ILValType::Int32(i1 + i2)),
-                        ILValType::UInt32(i2) => ILType::Val(ILValType::Int64(i1 as i64 + i2 as i64)),
-                        ILValType::Int64(i2) => ILType::Val(ILValType::Int64(i1 as i64 + i2)),
-                        ILValType::UInt64(_) => panic!("ambiguity"),
-                        ILValType::Single(i2) => ILType::Val(ILValType::Single(i1 as f32 + i2)),
-                        ILValType::Double(i2) => ILType::Val(ILValType::Double(i1 as f64 + i2)),
-                        ILValType::Byte(i2) => ILType::Val(ILValType::Int32(i1 + i2 as i32)),
-                        ILValType::SByte(i2) => ILType::Val(ILValType::Int32(i1 + i2 as i32)),
-                        ILValType::Short(i2) => ILType::Val(ILValType::Int32(i1 + i2 as i32)),
-                        ILValType::UShort(i2) => ILType::Val(ILValType::Int32(i1 + i2 as i32)),
-                    },
-                    ILType::Ref(_) => panic!("ref can't be added"),
-                },
-                _ => todo!()
-            },
-            ILType::Ref(r) => match r {
-                _ => todo!()  // 调用重载方法
-            },
+        match (self, other) {
+            (ILType::Val(v1), ILType::Val(v2)) => {
+                match (v1, v2) {
+                    (ILValType::Int32(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int32(i1 + i2)),
+                    (ILValType::Int32(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 as i64 + i2)),
+                    (ILValType::Int64(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int64(i1 + i2 as i64)),
+                    (ILValType::Single(i1), ILValType::Single(i2)) => ILType::Val(ILValType::Single(i1 + i2)),
+                    (ILValType::Double(i1), ILValType::Double(i2)) => ILType::Val(ILValType::Double(i1 + i2)),
+                    _ => panic!("Invalid Operation")
+                }
+            }
+            _ => panic!("Invalid Operation")
+        }
+    }
+}
+
+impl Sub for ILType {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        match (self, other) {
+            (ILType::Val(v1), ILType::Val(v2)) => {
+                match (v1, v2) {
+                    (ILValType::Int32(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int32(i1 - i2)),
+                    (ILValType::Int32(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 as i64 - i2)),
+                    (ILValType::Int64(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int64(i1 - i2 as i64)),
+                    (ILValType::Single(i1), ILValType::Single(i2)) => ILType::Val(ILValType::Single(i1 - i2)),
+                    (ILValType::Double(i1), ILValType::Double(i2)) => ILType::Val(ILValType::Double(i1 - i2)),
+                    _ => panic!("Invalid Operation")
+                }
+            }
+            _ => panic!("Invalid Operation")
         }
     }
 }

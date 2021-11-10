@@ -149,14 +149,17 @@ impl Interpreter {
                 Some(OpCode::Ldargs) => {
                     let index = self.image[rip];
                     rip += 1;
+                    todo!();
                 },
                 Some(OpCode::Ldargas) => {
                     let index = self.image[rip];
                     rip += 1;
+                    todo!();
                 },
                 Some(OpCode::Stargs) => {
                     let index = self.image[rip];
                     rip += 1;
+                    todo!();
                 },
                 Some(OpCode::Ldlocs) => {
                     let index = self.image[rip];
@@ -166,10 +169,12 @@ impl Interpreter {
                 Some(OpCode::Ldlocas) => {
                     let index = self.image[rip];
                     rip += 1;
+                    todo!();
                 },
                 Some(OpCode::Stlocs) => {
                     let index = self.image[rip];
                     rip += 1;
+                    todo!();
                 },
                 Some(OpCode::Ldnull) => {
                     self.stack.push_back(ILType::Ref(None));
@@ -204,9 +209,39 @@ impl Interpreter {
                 Some(OpCode::Ldci48) => {
                     self.stack.push_back(ILType::Val(ILValType::Int32(8)));
                 },
-                // 忽略一些
+                Some(OpCode::Ldci4s) => {
+                    let val = self.image[rip];
+                    rip += 1;
+                    self.stack.push_back(ILType::Val(ILValType::Byte(val)));
+                },
+                Some(OpCode::Ldci4) => {
+                    let val = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
+                    rip += 4;
+                    self.stack.push_back(ILType::Val(ILValType::UInt32(val)));
+                },
+                Some(OpCode::Ldci8) => {
+                    let val = u64::from_le_bytes(self.image[rip..rip + 8].try_into().unwrap());
+                    rip += 8;
+                    self.stack.push_back(ILType::Val(ILValType::UInt64(val)));
+                },
+                Some(OpCode::Ldcr4) => {
+                    let val = f32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
+                    rip += 4;
+                    self.stack.push_back(ILType::Val(ILValType::Single(val)));
+                },
+                Some(OpCode::Ldcr8) => {
+                    let val = f64::from_le_bytes(self.image[rip..rip + 8].try_into().unwrap());
+                    rip += 8;
+                    self.stack.push_back(ILType::Val(ILValType::Double(val)));
+                },
+                Some(OpCode::Dup) => {
+                    self.stack.push_back(self.stack.back().unwrap().clone());
+                },
+                Some(OpCode::Pop) => {
+                    self.stack.pop_back();
+                },
                 Some(OpCode::Jmp) => {
-                    return
+                    todo!();
                 },
                 Some(OpCode::Call) => {
                     let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
@@ -218,10 +253,10 @@ impl Interpreter {
                     }
                 },
                 Some(OpCode::Calli) => {
-                    return
+                    todo!();
                 },
                 Some(OpCode::Ret) => {
-                    return
+                    return;
                 },
                 Some(OpCode::Brs) => {
                     let target = self.image[rip];
@@ -234,110 +269,119 @@ impl Interpreter {
                     self.stack.push_back(a + b);
                 },
                 Some(OpCode::Sub) => {
-                    // let a = self.stack.pop_back().unwrap();
-                    // let b = self.stack.pop_back().unwrap();
-                    // self.stack.push_back(a - b);
+                    let a = self.stack.pop_back().unwrap();
+                    let b = self.stack.pop_back().unwrap();
+                    self.stack.push_back(a - b);
                 },
                 Some(OpCode::Mul) => {
                     // let a = self.stack.pop_back().unwrap();
                     // let b = self.stack.pop_back().unwrap();
                     // self.stack.push_back(a * b);
+                    todo!();
                 },
                 Some(OpCode::Div) => {
                     // let a = self.stack.pop_back().unwrap();
                     // let b = self.stack.pop_back().unwrap();
                     // self.stack.push_back(a / b);
+                    todo!();
                 },
                 Some(OpCode::Divun) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Rem) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Remun) => {
-    
+                    todo!();
                 },
                 Some(OpCode::And) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Or) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Xor) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Shl) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Shr) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Shrun) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Neg) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Not) => {
-    
+                    todo!();
+                },
+                // 忽略一些
+                Some(OpCode::Ldstr) => {
+                    todo!();  // 要从#US里获取
+                },
+                Some(OpCode::Newobj) => {
+                    todo!();  // 根据.ctor找到类
                 },
                 // 忽略一些
                 Some(OpCode::Unbox) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Throw) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Ldfld) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Ldflda) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Stfld) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Ldsfld) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Ldsflda) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Stsfld) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Stobj) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfi1un) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfi2un) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfi4un) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfi8un) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfu1un) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfu2un) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfu4un) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfu8un) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfiun) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Convovfuun) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Box) => {
                     let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
@@ -346,10 +390,10 @@ impl Interpreter {
                     self.il_new_obj(token, value);
                 },
                 Some(OpCode::Newarr) => {
-    
+                    todo!();
                 },
                 Some(OpCode::Ldlen) => {
-    
+                    todo!();
                 },
                 // 忽略一些
                 Some(OpCode::Unboxany) => {
