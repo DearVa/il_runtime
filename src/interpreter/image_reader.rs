@@ -86,6 +86,21 @@ impl ImageReader<'_> {
         Ok(())
     }
 
+    pub fn read_bytes_vec(&mut self, vec: &mut Vec<u8>) -> io::Result<()> {
+        let len = vec.len();
+        self.check_position(len)?;
+        vec.copy_from_slice(&self.image[self.position..self.position + len]);
+        self.position += len;
+        Ok(())
+    }
+
+    pub fn read_bytes_vec_exact(&mut self, vec: &mut Vec<u8>, length: usize) -> io::Result<()> {
+        self.check_position(length)?;
+        vec[..length].copy_from_slice(&self.image[self.position..self.position + length]);
+        self.position += length;
+        Ok(())
+    }
+
     pub fn read_string(&mut self, max_length: usize) -> io::Result<String> {
         self.check_position(max_length)?;
         let mut string = String::new();

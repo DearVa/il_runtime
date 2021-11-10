@@ -8,21 +8,36 @@ use colored::*;
 
 mod op_codes;
 use op_codes::*;
+mod il_type;
+use il_type::*;
 mod image_reader;
 use image_reader::*;
 mod metadata;
 use metadata::*;
+mod type_def;
+use type_def::*;
+mod type_ref;
+use type_ref::*;
 mod method;
 use method::*;
 mod param;
 use param::*;
+mod object;
+use object::*;
+
 
 pub struct Interpreter {
     pub image: Vec<u8>,    // 映像，一次性读取
     pub pe: PE,
     pub metadata: Metadata,
-    pub methods: HashMap<u32, Method>,  // <token(0x06000001...), Method>
-    pub params: HashMap<u32, Param>,    // <token(0x08000001...), Param>
+
+    pub type_refs: HashMap<u32, TypeRef>,   //  <token(0x01000001...), TypeRef>
+    pub type_defs: HashMap<u32, TypeDef>,   //  <token(0x01000001...), TypeRef>
+    pub methods: HashMap<u32, Method>,      // <token(0x06000001...), Method>
+    pub params: HashMap<u32, Param>,        // <token(0x08000001...), Param>
+
+    pub stack: VecDeque<ILType>,
+    pub objects: Vec<Object>,
 }
 
 impl Interpreter {
@@ -35,14 +50,17 @@ impl Interpreter {
         let pe = PE::new(&mut reader)?;
         let metadata = Metadata::new(&pe, &mut reader)?;
 
+        let type_refs = TypeRef::read_type_refs(&metadata)?;
+        let type_defs = TypeDef::read_type_defs(&metadata)?;
+
         let methods = Method::read_methods(&pe, &metadata, &mut reader)?;
         println!("Methods:");
         for method in methods.iter() {
             println!("{:?}", method.1);
         }
 
-        let params = Param::read_params(&metadata)?;
         println!("\nParams:");
+        let params = Param::read_params(&metadata)?;
         for param in params.iter() {
             println!("{:?}", param.1);
         }
@@ -51,32 +69,37 @@ impl Interpreter {
             image,
             pe,
             metadata,
+
+            type_refs,
+            type_defs,
             methods,
             params,
+
+            stack: VecDeque::new(),
+            objects: Vec::new(),
         })
     }
 
-    pub fn run(&self) {
+    pub fn run(&mut self) {
         println!("\nstart run:\n");
-        let main = self.methods.get(&0x06000001).unwrap();  // Main方法，static
-        let mut stack = VecDeque::new();
-        stack.push_back(0);
-        stack.push_back(0);
-        self.il_call(main, &mut stack);
+        self.il_call(0x06000001);
     }
 
-    fn il_call(&self, method: &Method, stack: &mut VecDeque<i32>) {
+    fn il_new_obj(&mut self, token: u32, value: ILType) {
+        self.objects.push(Object::new(token, value));
+        self.stack.push_back(ILType::Ref(Some(self.objects.len() - 1)));
+    }
+
+    fn il_call(&mut self, method_token: u32) {
+        let method = self.methods.get(&method_token).unwrap();
         println!("call: {:?}", method);
         let param_count = method.param_list.count as usize;
-        let mut params = vec![0i32; param_count];
-        for i in 0..param_count {
-            params[param_count - i - 1] = stack.pop_back().unwrap();  // 逆向出栈
+        let mut params = VecDeque::new();
+        for _ in 0..param_count {
+            params.push_front(self.stack.pop_back().unwrap());  // 逆向出栈，获取参数
         }
 
-        let mut local0: i32 = 0;
-        let mut local1: i32 = 0;
-        let mut local2: i32 = 0;
-        let mut local3: i32 = 0;
+        let mut locals = [ILType::Ref(None); 8];  // TODO
 
         let mut rip = method.code_position;  // 当前函数指针
         loop {
@@ -88,71 +111,98 @@ impl Interpreter {
                     println!("break");
                 },
                 Some(OpCode::Ldarg0) => {
-                    stack.push_back(params[0]);
+                    self.stack.push_back(params[0]);
                 },
                 Some(OpCode::Ldarg1) => {
-                    stack.push_back(params[1]);
+                    self.stack.push_back(params[1]);
                 },
                 Some(OpCode::Ldarg2) => {
-                    stack.push_back(params[2]);
+                    self.stack.push_back(params[2]);
                 },
                 Some(OpCode::Ldarg3) => {
-                    stack.push_back(params[3]);
+                    self.stack.push_back(params[3]);
                 },
                 Some(OpCode::Ldloc0) => {
-                    stack.push_back(local0);
+                    self.stack.push_back(locals[0]);
                 },
                 Some(OpCode::Ldloc1) => {
-                    stack.push_back(local1);
+                    self.stack.push_back(locals[1]);
                 },
                 Some(OpCode::Ldloc2) => {
-                    stack.push_back(local2);
+                    self.stack.push_back(locals[2]);
                 },
                 Some(OpCode::Ldloc3) => {
-                    stack.push_back(local3);
+                    self.stack.push_back(locals[3]);
                 },
                 Some(OpCode::Stloc0) => {
-                    local0 = stack.pop_back().unwrap();
+                    locals[0] = self.stack.pop_back().unwrap();
                 },
                 Some(OpCode::Stloc1) => {
-                    local1 = stack.pop_back().unwrap();
+                    locals[1] = self.stack.pop_back().unwrap();
                 },
                 Some(OpCode::Stloc2) => {
-                    local2 = stack.pop_back().unwrap();
+                    locals[2] = self.stack.pop_back().unwrap();
                 },
                 Some(OpCode::Stloc3) => {
-                    local3 = stack.pop_back().unwrap();
+                    locals[3] = self.stack.pop_back().unwrap();
                 },
-                // 忽略一些
+                Some(OpCode::Ldargs) => {
+                    let index = self.image[rip];
+                    rip += 1;
+                },
+                Some(OpCode::Ldargas) => {
+                    let index = self.image[rip];
+                    rip += 1;
+                },
+                Some(OpCode::Stargs) => {
+                    let index = self.image[rip];
+                    rip += 1;
+                },
+                Some(OpCode::Ldlocs) => {
+                    let index = self.image[rip];
+                    rip += 1;
+                    self.stack.push_back(locals[index as usize]);
+                },
+                Some(OpCode::Ldlocas) => {
+                    let index = self.image[rip];
+                    rip += 1;
+                },
+                Some(OpCode::Stlocs) => {
+                    let index = self.image[rip];
+                    rip += 1;
+                },
+                Some(OpCode::Ldnull) => {
+                    self.stack.push_back(ILType::Ref(None));
+                },
                 Some(OpCode::Ldci4m1) => {
-                    stack.push_back(-1);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(-1)));
                 },
                 Some(OpCode::Ldci40) => {
-                    stack.push_back(0);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(0)));
                 },
                 Some(OpCode::Ldci41) => {
-                    stack.push_back(1);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(1)));
                 },
                 Some(OpCode::Ldci42) => {
-                    stack.push_back(2);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(2)));
                 },
                 Some(OpCode::Ldci43) => {
-                    stack.push_back(3);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(3)));
                 },
                 Some(OpCode::Ldci44) => {
-                    stack.push_back(4);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(4)));
                 },
                 Some(OpCode::Ldci45) => {
-                    stack.push_back(5);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(5)));
                 },
                 Some(OpCode::Ldci46) => {
-                    stack.push_back(6);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(6)));
                 },
                 Some(OpCode::Ldci47) => {
-                    stack.push_back(7);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(7)));
                 },
                 Some(OpCode::Ldci48) => {
-                    stack.push_back(8);
+                    self.stack.push_back(ILType::Val(ILValType::Int32(8)));
                 },
                 // 忽略一些
                 Some(OpCode::Jmp) => {
@@ -162,10 +212,10 @@ impl Interpreter {
                     let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
                     rip += 4;
                     if token == 0xA00000D {
-                        println!("{}", stack.pop_back().unwrap().to_string().green());  // TODO: Console.PrintLine
-                        return
+                        println!("{}", self.stack.pop_back().unwrap().to_string().green());  // TODO: Console.PrintLine
+                    } else {
+                        self.il_call(token);
                     }
-                    self.il_call(self.methods.get(&token).expect("method not found"), stack);
                 },
                 Some(OpCode::Calli) => {
                     return
@@ -179,24 +229,24 @@ impl Interpreter {
                 },
                 // 忽略一些
                 Some(OpCode::Add) => {
-                    let a = stack.pop_back().unwrap();
-                    let b = stack.pop_back().unwrap();
-                    stack.push_back(a + b);
+                    let a = self.stack.pop_back().unwrap();
+                    let b = self.stack.pop_back().unwrap();
+                    self.stack.push_back(a + b);
                 },
                 Some(OpCode::Sub) => {
-                    let a = stack.pop_back().unwrap();
-                    let b = stack.pop_back().unwrap();
-                    stack.push_back(a - b);
+                    // let a = self.stack.pop_back().unwrap();
+                    // let b = self.stack.pop_back().unwrap();
+                    // self.stack.push_back(a - b);
                 },
                 Some(OpCode::Mul) => {
-                    let a = stack.pop_back().unwrap();
-                    let b = stack.pop_back().unwrap();
-                    stack.push_back(a * b);
+                    // let a = self.stack.pop_back().unwrap();
+                    // let b = self.stack.pop_back().unwrap();
+                    // self.stack.push_back(a * b);
                 },
                 Some(OpCode::Div) => {
-                    let a = stack.pop_back().unwrap();
-                    let b = stack.pop_back().unwrap();
-                    stack.push_back(a / b);
+                    // let a = self.stack.pop_back().unwrap();
+                    // let b = self.stack.pop_back().unwrap();
+                    // self.stack.push_back(a / b);
                 },
                 Some(OpCode::Divun) => {
     
@@ -232,8 +282,89 @@ impl Interpreter {
     
                 },
                 // 忽略一些
+                Some(OpCode::Unbox) => {
+    
+                },
+                Some(OpCode::Throw) => {
+    
+                },
+                Some(OpCode::Ldfld) => {
+    
+                },
+                Some(OpCode::Ldflda) => {
+    
+                },
+                Some(OpCode::Stfld) => {
+    
+                },
+                Some(OpCode::Ldsfld) => {
+    
+                },
+                Some(OpCode::Ldsflda) => {
+    
+                },
+                Some(OpCode::Stsfld) => {
+    
+                },
+                Some(OpCode::Stobj) => {
+    
+                },
+                Some(OpCode::Convovfi1un) => {
+    
+                },
+                Some(OpCode::Convovfi2un) => {
+    
+                },
+                Some(OpCode::Convovfi4un) => {
+    
+                },
+                Some(OpCode::Convovfi8un) => {
+    
+                },
+                Some(OpCode::Convovfu1un) => {
+    
+                },
+                Some(OpCode::Convovfu2un) => {
+    
+                },
+                Some(OpCode::Convovfu4un) => {
+    
+                },
+                Some(OpCode::Convovfu8un) => {
+    
+                },
+                Some(OpCode::Convovfiun) => {
+    
+                },
+                Some(OpCode::Convovfuun) => {
+    
+                },
+                Some(OpCode::Box) => {
+                    let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
+                    rip += 4;
+                    let value = self.stack.pop_back().unwrap();
+                    self.il_new_obj(token, value);
+                },
+                Some(OpCode::Newarr) => {
+    
+                },
+                Some(OpCode::Ldlen) => {
+    
+                },
+                // 忽略一些
+                Some(OpCode::Unboxany) => {
+                    let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
+                    rip += 4;
+                    let boxed = self.stack.pop_back().unwrap();
+                    let ref_obj = &self.objects[boxed.get_ref()];
+                    if ref_obj.get_type() != token {
+                        panic!("unboxany: type mismatch");
+                    }
+                    self.stack.push_back(*ref_obj.value);
+                },
+                // 忽略一些
                 _ => {
-                    println!("Unknown OpCode: 0x{:02X}", self.image[rip]);
+                    println!("Unknown OpCode: 0x{:02X}", self.image[rip - 1]);
                     return
                 }
             }
