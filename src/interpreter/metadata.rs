@@ -1,5 +1,3 @@
-mod flag_info;
-use flag_info::*;
 mod image_data_directory;
 mod image_option_header;
 use image_option_header::*;
@@ -15,9 +13,7 @@ mod strings_stream;
 use strings_stream::*;
 use super::ImageReader;
 
-use std::collections::HashMap;
 use std::io;
-use std::convert::TryInto;
 
 #[derive(Debug)]
 pub struct PE {
@@ -101,128 +97,47 @@ impl PE {
     }
 }
 
-#[derive(Debug)]
-pub struct Method {
-    pub token: u32,         // 和字典Key一致
-    pub rva: u32,           // 函数入口在image中的偏移
-    pub impl_flags: u16,    // 实现标志
-    pub flags: u16,         // 函数标志，这和MDTable中的flag不同
-    pub name: String,       // 函数名
-    pub signature: u16,     // 签名
-    pub param_list: u16,    // 参数列表，需要在StringsStream查找
-
-    pub max_stack: u16,     // 最大堆栈大小
-    pub header_size: u8,    // 函数头大小
-    pub code_size: u32,     // 代码大小
-    pub local_var_sig_token: u32,   // 局部变量Signature
-
-    pub header_position: usize,     // MethodHeader在Image中的真实位置
-    pub code_position: usize,       // IL指令在Image中的真实位置
+#[derive(Debug, Default)]
+pub struct RidList {
+    pub start_rid: u32,
+    pub count: u32,
+    pub rids: Option<Vec<u32>>,
 }
 
-impl Method {
-    pub fn read_methods(pe: &PE, table_stream: &TableStream, strings_stream: &StringsStream, reader: &mut ImageReader) -> io::Result<HashMap<u32, Method>> {
-        let mut methods = HashMap::new();
-        let method_table = &table_stream.md_tables[6];
-        for i in 0..method_table.row_count {
-            let token = 0x06000001 + i as u32;
-            let rva = method_table.columns[0].get_cell_u32(i);
-            let header_position = pe.rva_to_file_offset(rva);
-            reader.set_position(header_position)?;
-
-            let mut flags: u16;
-            let header_size: u8;
-            let code_size: u32;
-            let max_stack: u16;
-            let local_var_sig_token: u32;
-            let b = reader.read_u8()? & 7;
-            match b {
-                2 | 6 => {  // Tiny header. [7:2] = code size, max stack is 8, no locals or exception handlers
-                    flags = 2;
-                    max_stack = 8;
-                    code_size = (b >> 2) as u32;
-                    local_var_sig_token = 0;
-                    header_size = 1;
-                },
-                3 => {  // Fat header. Can have locals and exception handlers
-                    flags = (reader.read_u8()? as u16) << 8;
-                    header_size = 4 * (flags >> 12) as u8;
-                    max_stack = reader.read_u16()?;
-                    code_size = reader.read_u32()?;
-                    local_var_sig_token = reader.read_u32()?;
-                    
-                    // The CLR allows the code to start inside the method header. But if it does,
-				    // the CLR doesn't read any exceptions.
-                    reader.back(12)?;
-                    reader.advance(header_size as usize)?;
-                    if header_size < 12 {
-                        flags &= 0xFFF7;
-                    }
-                },
-                _ => panic!("Invalid method header")
-            }
-
-            // TODO: 读取locals
-
-            methods.insert(token, Method {
-                token,
-                rva,
-                impl_flags: method_table.columns[1].get_cell_u16(i),
-                flags,
-                name: strings_stream.get_string(method_table.columns[3].get_cell_u16(i) as u32).clone(),
-                signature: method_table.columns[4].get_cell_u16(i),
-                param_list: method_table.columns[5].get_cell_u16(i),
-
-                max_stack,
-                header_size,
-                code_size,
-                local_var_sig_token,
-
-                header_position,
-                code_position: header_position + header_size as usize,
-            });
-        }
-        Ok(methods)
-    }
-
-    pub fn check_impl_flag_info(flag: u16, flag_info: ImplAttrFlagInfo) -> bool {
-        match flag_info {
-            ImplAttrFlagInfo::CodeType(t) => {
-                flag & 0x0003 & (t as u16) != 0
-            },
-            ImplAttrFlagInfo::Managed(m) => {
-                flag & 0x0004 & (m as u16) != 0
-            },
-            ImplAttrFlagInfo::CommonImplAttrFlagInfo(c) => {
-                flag & (c as u16) != 0
-            }
+impl RidList {
+    pub fn create(start_row: u32, row_count: u32) -> RidList {
+        RidList {
+            start_rid: start_row,
+            count: row_count,
+            rids: None,
         }
     }
-}
 
-pub struct Param {
-    pub token: u32,
-    pub flags: u16,
-    pub sequence: u16,
-    pub name: u16,
-}
-
-impl Param {
-    pub fn read_params(reader: &mut ImageReader, count: usize) -> io::Result<HashMap<u32, Param>> {
-        let mut params = HashMap::new();
-        reader.set_position(0x3EC)?;  // 定位到Params位置,目前这是通过16进制编辑器定位的
-        for i in 0..count {
-            let mut buf = [0u8; 6];
-            reader.read_bytes(&mut buf)?;
-            let token = 0x08000001 + i as u32;
-            params.insert(token, Param {
-                token,
-                flags: u16::from_le_bytes(buf[0..2].try_into().unwrap()),
-                sequence: u16::from_le_bytes(buf[2..4].try_into().unwrap()),
-                name: u16::from_le_bytes(buf[4..6].try_into().unwrap()),
-            });
+    pub fn create_from_rids(rids: Vec<u32>) -> RidList {
+        RidList {
+            start_rid: 0,
+            count: rids.len() as u32,
+            rids: Some(rids),
         }
-        Ok(params)
+    }
+
+    pub fn get(&self, index: u32) -> u32 {
+        match self.rids {
+            Some(ref rids) => {
+                if index >= rids.len() as u32 {
+                    0
+                } else {
+                    rids[index as usize]
+                }
+            },
+            None => {
+                if index >= self.count as u32 {
+                    0
+                } else {
+                    self.start_rid + index
+                }
+            },
+        }
     }
 }
 
@@ -236,8 +151,6 @@ enum MetadataType {
 pub struct Metadata {
     pub strings_stream: StringsStream,
     pub table_stream: TableStream,
-    pub methods: HashMap<u32, Method>,  // <token(0x06000001...), Method>
-    pub params: HashMap<u32, Param>,    // <token(0x08000001...), Param>
 }
 
 impl Metadata {
@@ -307,16 +220,9 @@ impl Metadata {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "No #~ stream found"));
         }
 
-        let methods = Method::read_methods(pe, &table_stream, &strings_stream, reader)?;
-        println!("{:?}", methods.get(&0x06000001).unwrap());
-        println!("{:?}", methods.get(&0x06000002).unwrap());
-        println!("{:?}", methods.get(&0x06000003).unwrap());
-
         Ok(Metadata {
             strings_stream,
             table_stream,
-            methods,
-            params: Param::read_params(reader, 2)?,     // TODO: 目前是2个
         })
     }
 
@@ -337,25 +243,46 @@ impl Metadata {
         Ok(md_type)
     }
 
-    pub fn get_param_count(&self, method: &Method) -> u16 {
-        match self.params.get(&(0x08000000 + method.param_list as u32)) {
-            Some(param) => {
-                let mut param_count: u16 = 1;
-                let mut token = param.token + 1;
-                loop {
-                    match self.params.get(&token) {
-                        Some(p) => {
-                            if p.sequence < param.sequence {
-                                return param_count;
-                            }
-                            param_count += 1;
-                            token += 1;
-                        },
-                        None => return param_count
-                    }
-                }
-            }
-            None => 0
+    fn get_rid_list(src_table: &MDTable, src_rid: u32, col_index: i32, dst_table: &MDTable) -> RidList {
+        assert!(src_table.row_count > 0);
+        assert!(src_rid > 0);
+        let col = &src_table.columns[col_index as usize];
+        let mut start_rid = 0;
+        if !col.try_read_rid(src_rid, &mut start_rid) {
+            return Default::default()
         }
+        let mut next_list_rid = 0;
+        let has_next = col.try_read_rid(src_rid + 1, &mut next_list_rid);
+        let last_rid = dst_table.row_count + 1;
+        if start_rid >= last_rid {
+            return Default::default()
+        }
+        let mut end_rid;
+        if !has_next || (next_list_rid == 0 && src_rid + 1 == src_table.row_count && dst_table.row_count == 0xFFFF) {
+            end_rid = last_rid;
+        } else {
+            end_rid = next_list_rid;
+        }
+        if end_rid < start_rid {
+            end_rid = start_rid;
+        }
+        if end_rid > last_rid {
+            end_rid = last_rid;
+        }
+        RidList::create(start_rid, end_rid - start_rid)
     }
+
+    pub fn get_param_rid_list(&self, src_rid: u32) -> RidList {
+        Metadata::get_rid_list(&self.table_stream.md_tables[6], src_rid, 5, &self.table_stream.md_tables[8])
+    }
+
+    // 获取参数的拥有者方法
+    // pub fn get_param_owner(&self, row: u32) -> u32 {
+    //     let index = row as usize - 1;
+    //     if index >= self.param_row_to_owner_row.len() {
+    //         0
+    //     } else {
+    //         self.param_row_to_owner_row[index]
+    //     }
+    // }
 }

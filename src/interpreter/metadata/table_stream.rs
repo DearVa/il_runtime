@@ -334,6 +334,33 @@ impl MDColumn {
         }
     }
 
+    fn check_rid(&self, rid: u32) -> bool {
+        ((rid * self.size as u32) as usize) <= self.data.len() && rid > 0
+    }
+
+    pub fn try_read_rid(&self, rid: u32, result: &mut u32) -> bool {
+        if !self.check_rid(rid) {
+            return false;
+        }
+        match self.size {
+            2 => {
+                if !self.check_rid(rid + 2) {
+                    return false;
+                }
+                *result = self.get_cell_u16(rid - 1).clone() as u32;
+                true
+            },
+            4 => {
+                if !self.check_rid(rid + 4) {
+                    return false;
+                }
+                *result = self.get_cell_u32(rid - 1).clone();
+                true
+            },
+            _ => false,
+        }
+    }
+
     pub fn get_cell_u8(&self, row: u32) -> u8 {
         assert_eq!(self.size, 1);
         self.data[row as usize]

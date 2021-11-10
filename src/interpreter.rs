@@ -1,7 +1,7 @@
 use std::io;
 use std::fs::File;
 use std::io::prelude::*;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use num_traits::FromPrimitive;
 use std::convert::TryInto;
 use colored::*;
@@ -12,11 +12,17 @@ mod image_reader;
 use image_reader::*;
 mod metadata;
 use metadata::*;
+mod method;
+use method::*;
+mod param;
+use param::*;
 
 pub struct Interpreter {
     pub image: Vec<u8>,    // 映像，一次性读取
     pub pe: PE,
     pub metadata: Metadata,
+    pub methods: HashMap<u32, Method>,  // <token(0x06000001...), Method>
+    pub params: HashMap<u32, Param>,    // <token(0x08000001...), Param>
 }
 
 impl Interpreter {
@@ -28,15 +34,32 @@ impl Interpreter {
         let mut reader = ImageReader::new(&image);
         let pe = PE::new(&mut reader)?;
         let metadata = Metadata::new(&pe, &mut reader)?;
+
+        let methods = Method::read_methods(&pe, &metadata, &mut reader)?;
+
+        println!("Methods:");
+        for method in methods.iter() {
+            println!("{:?}", method.1);
+        }
+
+        println!("\nParams:");
+        let params = Param::read_params(&metadata)?;
+        for param in params.iter() {
+            println!("{:?}", param.1);
+        }
+
         Ok(Interpreter {
-            image: image,
+            image,
             pe,
             metadata,
+            methods,
+            params,
         })
     }
 
-    pub fn run(&mut self) {
-        let main = self.metadata.methods.get(&0x06000001).unwrap();  // Main方法，static
+    pub fn run(&self) {
+        println!("\nstart run:\n");
+        let main = self.methods.get(&0x06000001).unwrap();  // Main方法，static
         let mut stack = VecDeque::new();
         stack.push_back(0);
         stack.push_back(0);
@@ -44,7 +67,8 @@ impl Interpreter {
     }
 
     fn il_call(&self, method: &Method, stack: &mut VecDeque<i32>) {
-        let param_count = self.metadata.get_param_count(method) as usize;
+        println!("call: {:?}", method);
+        let param_count = method.param_list.count as usize;
         let mut params = vec![0i32; param_count];
         for i in 0..param_count {
             params[param_count - i - 1] = stack.pop_back().unwrap();  // 逆向出栈
@@ -60,9 +84,7 @@ impl Interpreter {
             let op = FromPrimitive::from_u8(self.image[rip]);
             rip += 1;
             match op {
-                Some(OpCode::Nop) => {
-                    println!("nop");
-                },
+                Some(OpCode::Nop) => {},
                 Some(OpCode::Break) => {
                     println!("break");
                 },
@@ -140,12 +162,11 @@ impl Interpreter {
                 Some(OpCode::Call) => {
                     let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
                     rip += 4;
-                    println!("call 0x{:04X}", token);
                     if token == 0xA00000D {
                         println!("{}", stack.pop_back().unwrap().to_string().green());  // TODO: Console.PrintLine
                         return
                     }
-                    self.il_call(self.metadata.methods.get(&token).expect("method not found"), stack);
+                    self.il_call(self.methods.get(&token).expect("method not found"), stack);
                 },
                 Some(OpCode::Calli) => {
                     return
