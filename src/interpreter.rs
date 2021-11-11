@@ -1,7 +1,7 @@
 use std::io;
 use std::fs::File;
 use std::io::prelude::*;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use num_traits::FromPrimitive;
 use std::convert::TryInto;
 use colored::*;
@@ -31,10 +31,10 @@ pub struct Interpreter {
     pub pe: PE,
     pub metadata: Metadata,
 
-    pub type_refs: HashMap<u32, TypeRef>,   //  <token(0x01000001...), TypeRef>
-    pub type_defs: HashMap<u32, TypeDef>,   //  <token(0x01000001...), TypeRef>
-    pub methods: HashMap<u32, Method>,      // <token(0x06000001...), Method>
-    pub params: HashMap<u32, Param>,        // <token(0x08000001...), Param>
+    pub type_refs: Vec<TypeRef>,   //  <token(0x01000001...), TypeRef>
+    pub type_defs: Vec<TypeDef>,   //  <token(0x01000001...), TypeRef>
+    pub methods: Vec<Method>,      //  <token(0x06000001...), Method>
+    pub params: Vec<Param>,        //  <token(0x08000001...), Param>
 
     pub stack: VecDeque<ILType>,
     pub objects: Vec<Object>,
@@ -54,16 +54,25 @@ impl Interpreter {
         let type_refs = TypeRef::read_type_refs(&metadata)?;
         let type_defs = TypeDef::read_type_defs(&metadata)?;
 
-        let methods = Method::read_methods(&pe, &metadata, &mut reader)?;
+        // 这是为了寻找方法的类型定义
+        // 例如类型定义中的Methods的RidList按顺序是这样，1->1, 1->4, 4->4, 4->5
+        // 那么这个数组就存放的是[1, 1, 4, 4]
+        // read_methods的时候，假设一个method的Rid是3，那么就能知道4是第一个比3大的，是第3个方法的Method，即0x06000003
+        let mut method_to_type_map = Vec::new();
+        for type_def in type_defs.iter() {
+            method_to_type_map.push(type_def.method_list.start_rid);
+        }
+
+        let methods = Method::read_methods(&pe, &metadata, method_to_type_map, &mut reader)?;
         println!("Methods:");
         for method in methods.iter() {
-            println!("{:?}", method.1);
+            println!("{:?}", method);
         }
 
         println!("\nParams:");
         let params = Param::read_params(&metadata)?;
         for param in params.iter() {
-            println!("{:?}", param.1);
+            println!("{:?}", param);
         }
 
         Ok(Interpreter {
@@ -87,8 +96,13 @@ impl Interpreter {
         self.il_call(0x06000001);
     }
 
-    fn il_new_obj(&mut self, token: u32, value: ILType) {
-        self.objects.push(Object::new(token, value));
+    fn il_box_obj(&mut self, type_token: u32, value: ILType) {
+        self.objects.push(Object::new_box(type_token, value));
+        self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
+    }
+
+    fn il_new_obj(&mut self, type_token: u32) {
+        self.objects.push(Object::new(type_token));
         self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
     }
 
@@ -98,17 +112,30 @@ impl Interpreter {
     }
 
     fn il_call(&mut self, method_token: u32) {
-        let method = self.methods.get(&method_token).unwrap();
-        println!("call: {:?}", method);
-        let param_count = method.param_list.count as usize;
+        let param_count;
+        let mut rip;
+        {
+            let method;
+            if (method_token >> 24) == 0x06 {
+                method = &self.methods[(method_token & 0x00FFFFFF) as usize - 1];
+            } else {
+                todo!();  // Ref Method
+            }
+            println!("call: {:?}", method);
+            if method.is_static() {
+                param_count = method.param_list.count as usize;
+            } else {
+                param_count = method.param_list.count as usize + 1;  // 实例方法第一个参数是this
+            }
+            rip = method.code_position;  // 当前函数指针
+        }
+
         let mut params = VecDeque::new();
         for _ in 0..param_count {
             params.push_front(self.stack.pop_back().unwrap());  // 逆向出栈，获取参数
         }
 
         let mut locals = [ILType::Ref(ILRefType::Null); 8];  // TODO
-
-        let mut rip = method.code_position;  // 当前函数指针
         loop {
             let op = FromPrimitive::from_u8(self.image[rip]);
             rip += 1;
@@ -253,9 +280,11 @@ impl Interpreter {
                 Some(OpCode::Call) => {
                     let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
                     rip += 4;
-                    if token == 0xA00000D || token == 0xA00000E {
+                    if token == 0xA00000D || token == 0xA00000E{
                         let val = self.stack.pop_back().unwrap();
-                        println!("{}", self.convert_to_string(&val).green());  // TODO: Console.PrintLine
+                        println!("{}", self.convert_to_string(&val).green());  // TODO: Console.WriteLine
+                    } else if token == 0xA00000F {  // TODO: System.Object..ctor
+                        return;
                     } else {
                         self.il_call(token);
                     }
@@ -334,7 +363,11 @@ impl Interpreter {
                     self.il_new_string(str);
                 },
                 Some(OpCode::Newobj) => {
-                    todo!();  // 根据.ctor找到类
+                    let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());  // .ctor方法的token
+                    rip += 4;
+                    let type_token = self.methods[token as usize - 0x06000001].owner_type + 0x02000001;
+                    self.il_new_obj(type_token);  // 根据.ctor找到类，new出来推送到栈上，作为.ctor的this
+                    self.il_call(token);
                 },
                 // 忽略一些
                 Some(OpCode::Unbox) => {
@@ -398,7 +431,7 @@ impl Interpreter {
                     let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
                     rip += 4;
                     let value = self.stack.pop_back().unwrap();
-                    self.il_new_obj(token, value);
+                    self.il_box_obj(token, value);
                 },
                 Some(OpCode::Newarr) => {
                     todo!();
@@ -415,7 +448,7 @@ impl Interpreter {
                     if ref_obj.get_type() != token {
                         panic!("unboxany: type mismatch");
                     }
-                    self.stack.push_back(*ref_obj.value.clone());
+                    self.stack.push_back(ref_obj.box_value.unwrap());
                 },
                 // 忽略一些
                 _ => {

@@ -1,19 +1,21 @@
-use std::{collections::HashMap, io};
+use std::io;
 
 use super::{image_reader::ImageReader, metadata::*, RidList};
 
 #[derive(Debug)]
 pub struct Method {
-    pub token: u32,                 // 和字典Key一致
-    pub rva: u32,                   // 函数入口在image中的偏移
+    pub token: u32,                 // 形如0x06000001
+    pub rva: u32,                   // 方法入口在image中的偏移
     pub impl_flags: u16,            // 实现标志
-    pub flags: u16,                 // 函数标志，这和MDTable中的flag不同
-    pub name: String,               // 函数名
+    pub attributes: u16,            // 方法属性，比如是否为static，virtual，abstract等
+    pub flags: u16,                 // 方法标志，这和MDTable中的flag不同
+    pub name: String,               // 方法名
     pub signature: u16,             // 签名
     pub param_list: RidList,        // 参数列表，对应ParamTable
+    pub owner_type: u32,            // 方法所属类型，加上0x06000001就是对应的方法
 
     pub max_stack: u16,             // 最大堆栈大小
-    pub header_size: u8,            // 函数头大小
+    pub header_size: u8,            // 方法头大小
     pub code_size: u32,             // 代码大小
     pub local_var_sig_token: u32,   // 局部变量Signature
 
@@ -22,11 +24,22 @@ pub struct Method {
 }
 
 impl Method {
-    pub fn read_methods(pe: &PE, metadata: &Metadata, reader: &mut ImageReader) -> io::Result<HashMap<u32, Method>> {
-        let mut methods = HashMap::new();
+    pub fn read_methods(pe: &PE, metadata: &Metadata, method_to_type_map: Vec<u32>, reader: &mut ImageReader) -> io::Result<Vec<Method>> {
+        let mut methods = Vec::new();
         let method_table = &metadata.table_stream.md_tables[6];
+        let mut type_map_index = 0;
         for row in 0..method_table.row_count {
-            let token = 0x06000001 + row as u32;
+            let rid = row + 1;
+
+            if type_map_index < method_to_type_map.len() {
+                while rid >= method_to_type_map[type_map_index] {
+                    type_map_index += 1;
+                    if type_map_index == method_to_type_map.len() {
+                        break;
+                    }
+                }
+            }
+
             let rva = method_table.columns[0].get_cell_u32(row);
             let header_position = pe.rva_to_file_offset(rva);
             reader.set_position(header_position)?;
@@ -65,14 +78,16 @@ impl Method {
 
             // TODO: 读取locals
 
-            methods.insert(token, Method {
-                token,
+            methods.push(Method {
+                token: 0x06000001 + row as u32,
                 rva,
                 impl_flags: method_table.columns[1].get_cell_u16(row),
+                attributes: method_table.columns[2].get_cell_u16(row),
                 flags,
                 name: metadata.strings_stream.get_string_clone(method_table.columns[3].get_cell_u16(row) as u32)?,
                 signature: method_table.columns[4].get_cell_u16(row),
                 param_list: metadata.get_param_rid_list(row + 1),
+                owner_type: type_map_index as u32 - 1,
 
                 max_stack,
                 header_size,
@@ -99,6 +114,10 @@ impl Method {
                 flag & (c as u16) != 0
             }
         }
+    }
+
+    pub fn is_static(&self) -> bool {
+        self.attributes & 0x10 != 0
     }
 }
 

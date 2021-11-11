@@ -5,7 +5,7 @@ pub struct Object {
     pub hash: u32,
     pub size: u16,
     pub type_token: [u8; 3],
-    pub value: Box<ILType>,
+    pub box_value: Option<ILType>,  // 如果是box，那么这个存储原始数据
 }
 
 impl ToString for Object {
@@ -19,13 +19,23 @@ impl ToString for Object {
 }
 
 impl Object {
-    pub fn new(type_token: u32, value: ILType) -> Object {
+    pub fn new(type_token: u32) -> Object {
         Object {
             flags: Object::parse_flags(type_token),
             hash: 0,
             size: 8,
             type_token: Object::parse_type_token(type_token),
-            value: Box::new(value),
+            box_value: None,
+        }
+    }
+
+    pub fn new_box(type_token: u32, value: ILType) -> Object {
+        Object {
+            flags: Object::parse_flags(type_token),
+            hash: 0,
+            size: 8,
+            type_token: Object::parse_type_token(type_token),
+            box_value: Some(value),
         }
     }
 

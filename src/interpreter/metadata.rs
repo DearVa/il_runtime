@@ -220,7 +220,7 @@ impl Metadata {
                 }
             },
             Ok(MetadataType::ENC) => {
-
+                todo!();
             },
             _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "No #~ or #- stream found"))
         }
@@ -286,11 +286,15 @@ impl Metadata {
         Metadata::get_rid_list(&self.table_stream.md_tables[6], src_rid, 5, &self.table_stream.md_tables[8])
     }
 
+    pub fn get_method_rid_list(&self, src_rid: u32) -> RidList {
+        Metadata::get_rid_list(&self.table_stream.md_tables[2], src_rid, 5, &self.table_stream.md_tables[6])
+    }
+
     pub fn get_us_string(&self, signature: u32) -> io::Result<String> {
         if (signature >> 24) != 0x70 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid US signature"));
         }
-        self.us_stream.read(signature << 8 >> 8)
+        self.us_stream.read(signature & 0x00FFFFFF)
     }
 
     // 获取参数的拥有者方法
