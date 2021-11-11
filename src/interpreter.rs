@@ -38,6 +38,7 @@ pub struct Interpreter {
 
     pub stack: VecDeque<ILType>,
     pub objects: Vec<Object>,
+    pub strings: Vec<String>,
 }
 
 impl Interpreter {
@@ -77,6 +78,7 @@ impl Interpreter {
 
             stack: VecDeque::new(),
             objects: Vec::new(),
+            strings: Vec::new(),
         })
     }
 
@@ -87,7 +89,12 @@ impl Interpreter {
 
     fn il_new_obj(&mut self, token: u32, value: ILType) {
         self.objects.push(Object::new(token, value));
-        self.stack.push_back(ILType::Ref(Some(self.objects.len() - 1)));
+        self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
+    }
+
+    fn il_new_string(&mut self, string: String) {
+        self.strings.push(string);
+        self.stack.push_back(ILType::Ref(ILRefType::String(self.strings.len() - 1)));
     }
 
     fn il_call(&mut self, method_token: u32) {
@@ -99,7 +106,7 @@ impl Interpreter {
             params.push_front(self.stack.pop_back().unwrap());  // 逆向出栈，获取参数
         }
 
-        let mut locals = [ILType::Ref(None); 8];  // TODO
+        let mut locals = [ILType::Ref(ILRefType::Null); 8];  // TODO
 
         let mut rip = method.code_position;  // 当前函数指针
         loop {
@@ -177,7 +184,7 @@ impl Interpreter {
                     todo!();
                 },
                 Some(OpCode::Ldnull) => {
-                    self.stack.push_back(ILType::Ref(None));
+                    self.stack.push_back(ILType::Ref(ILRefType::Null));
                 },
                 Some(OpCode::Ldci4m1) => {
                     self.stack.push_back(ILType::Val(ILValType::Int32(-1)));
@@ -246,8 +253,9 @@ impl Interpreter {
                 Some(OpCode::Call) => {
                     let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
                     rip += 4;
-                    if token == 0xA00000D {
-                        println!("{}", self.stack.pop_back().unwrap().to_string().green());  // TODO: Console.PrintLine
+                    if token == 0xA00000D || token == 0xA00000E {
+                        let val = self.stack.pop_back().unwrap();
+                        println!("{}", self.convert_to_string(&val).green());  // TODO: Console.PrintLine
                     } else {
                         self.il_call(token);
                     }
@@ -320,7 +328,10 @@ impl Interpreter {
                 },
                 // 忽略一些
                 Some(OpCode::Ldstr) => {
-                    todo!();  // 要从#US里获取
+                    let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
+                    rip += 4;
+                    let str = self.metadata.get_us_string(token).unwrap();
+                    self.il_new_string(str);
                 },
                 Some(OpCode::Newobj) => {
                     todo!();  // 根据.ctor找到类
@@ -404,7 +415,7 @@ impl Interpreter {
                     if ref_obj.get_type() != token {
                         panic!("unboxany: type mismatch");
                     }
-                    self.stack.push_back(*ref_obj.value);
+                    self.stack.push_back(*ref_obj.value.clone());
                 },
                 // 忽略一些
                 _ => {
@@ -412,6 +423,23 @@ impl Interpreter {
                     return
                 }
             }
+        }
+    }
+
+    fn convert_to_string(&self, val: &ILType) -> String {
+        match val {
+            ILType::Ref(ILRefType::String(s)) => {
+                self.strings[*s].to_string()
+            },
+            ILType::Ref(ILRefType::Object(o)) => {
+                self.objects[*o].to_string()
+            },
+            ILType::Ref(ILRefType::Null) => {
+                "null".to_string()
+            },
+            ILType::Val(v) => {
+                v.to_string()
+            },
         }
     }
 }

@@ -15,8 +15,8 @@ impl TypeRef {
         for row in 0..type_ref_table.row_count {
             let token = 0x01000001 + row as u32;
             let resolution_scope = type_ref_table.columns[0].get_cell_u16(row);
-            let name = metadata.strings_stream.get_string_clone(type_ref_table.columns[1].get_cell_u16(row) as u32)?.clone();
-            let namespace = metadata.strings_stream.get_string_clone(type_ref_table.columns[2].get_cell_u16(row) as u32)?.clone();
+            let name = metadata.strings_stream.get_string_clone(type_ref_table.columns[1].get_cell_u16(row) as u32)?;
+            let namespace = metadata.strings_stream.get_string_clone(type_ref_table.columns[2].get_cell_u16(row) as u32)?;
 
             type_refs.insert(token, TypeRef { 
                 resolution_scope, 

@@ -5,30 +5,44 @@ pub struct Object {
     pub hash: u32,
     pub size: u16,
     pub type_token: [u8; 3],
-    pub value: Box<ILType>,  // TODO: 暂时只存放i32
+    pub value: Box<ILType>,
+}
+
+impl ToString for Object {
+    fn to_string(&self) -> String {
+        let mut s = String::new();
+        s.push_str("Object: ");
+        s.push_str(&format!("type_token: {}", self.get_type()));
+        // s.push_str(&format!("value: {}", self.value));
+        s
+    }
 }
 
 impl Object {
     pub fn new(type_token: u32, value: ILType) -> Object {
         Object {
-            flags: {
-                if (type_token >> 24) & 0xF == 2 {
-                    1
-                } else {
-                    0
-                }
-            },
+            flags: Object::parse_flags(type_token),
             hash: 0,
             size: 8,
-            type_token: {
-                let mut result = [0u8; 3];
-                result[2] = (type_token >> 16) as u8;
-                result[1] = (type_token >> 8) as u8;
-                result[0] = type_token as u8;
-                result
-            },
+            type_token: Object::parse_type_token(type_token),
             value: Box::new(value),
         }
+    }
+
+    fn parse_flags(type_token: u32) -> u8 {
+        if (type_token >> 24) & 0xF == 2 {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn parse_type_token(type_token: u32) -> [u8; 3] {
+        let mut result = [0u8; 3];
+        result[2] = (type_token >> 16) as u8;
+        result[1] = (type_token >> 8) as u8;
+        result[0] = type_token as u8;
+        result
     }
 
     pub fn is_locked(&self) -> bool {

@@ -16,10 +16,37 @@ pub enum ILValType {
     UShort(u16),
 }
 
+impl ToString for ILValType {
+    fn to_string(&self) -> String {
+        match self {
+            ILValType::Boolean(b) => b.to_string(),
+            ILValType::Byte(b) => b.to_string(),
+            ILValType::SByte(b) => b.to_string(),
+            ILValType::Char(c) => c.to_string(),
+            ILValType::Double(d) => d.to_string(),
+            ILValType::Single(f) => f.to_string(),
+            ILValType::Int32(i) => i.to_string(),
+            ILValType::UInt32(i) => i.to_string(),
+            ILValType::Int64(i) => i.to_string(),
+            ILValType::UInt64(i) => i.to_string(),
+            ILValType::Short(i) => i.to_string(),
+            ILValType::UShort(i) => i.to_string(),
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ILRefType {
+    Null,
+    String(usize),  // 指向Strings堆
+    Object(usize),  // 指向Objects堆
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ILType {
     Val(ILValType),
-    Ref(Option<usize>),  // 指向Objects堆
+    Ref(ILRefType),
 }
 
 impl ILType {
@@ -32,33 +59,14 @@ impl ILType {
 
     pub fn get_ref(&self) -> usize {
         match self {
-            ILType::Ref(ref v) => *v.as_ref().unwrap(),
-            _ => panic!("not ref"),
-        }
-    }
-}
-
-impl ToString for ILType {
-    fn to_string(&self) -> String {
-        match self {
-            ILType::Val(v) => match v {
-                ILValType::Boolean(b) => b.to_string(),
-                ILValType::Byte(b) => b.to_string(),
-                ILValType::SByte(b) => b.to_string(),
-                ILValType::Char(c) => c.to_string(),
-                ILValType::Double(d) => d.to_string(),
-                ILValType::Single(f) => f.to_string(),
-                ILValType::Int32(i) => i.to_string(),
-                ILValType::UInt32(i) => i.to_string(),
-                ILValType::Int64(i) => i.to_string(),
-                ILValType::UInt64(i) => i.to_string(),
-                ILValType::Short(i) => i.to_string(),
-                ILValType::UShort(i) => i.to_string(),
+            ILType::Ref(ref r) => {
+                match r {
+                    ILRefType::Object(o) => *o,
+                    ILRefType::String(s) => *s,
+                    _ => panic!("not an object"),
+                }
             },
-            ILType::Ref(r) => match r {
-                Some(i) => format!("ref:{}", i),
-                None => "ref:null".to_string(),
-            },
+            _ => panic!("not a ref type"),
         }
     }
 }

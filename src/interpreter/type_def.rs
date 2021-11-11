@@ -18,8 +18,8 @@ impl TypeDef {
         for row in 0..type_def_table.row_count {
             let token = 0x02000001 + row as u32;
             let flags = type_def_table.columns[0].get_cell_u32(row);
-            let name = metadata.strings_stream.get_string_clone(type_def_table.columns[1].get_cell_u16(row) as u32)?.clone();
-            let namespace = metadata.strings_stream.get_string_clone(type_def_table.columns[2].get_cell_u16(row) as u32)?.clone();
+            let name = metadata.strings_stream.get_string_clone(type_def_table.columns[1].get_cell_u16(row) as u32)?;
+            let namespace = metadata.strings_stream.get_string_clone(type_def_table.columns[2].get_cell_u16(row) as u32)?;
             let extends = type_def_table.columns[3].get_cell_u16(row);
             let field_list = type_def_table.columns[4].get_cell_u16(row);
             let method_list = type_def_table.columns[5].get_cell_u16(row);

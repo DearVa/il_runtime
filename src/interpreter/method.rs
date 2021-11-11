@@ -70,7 +70,7 @@ impl Method {
                 rva,
                 impl_flags: method_table.columns[1].get_cell_u16(row),
                 flags,
-                name: metadata.strings_stream.get_string_clone(method_table.columns[3].get_cell_u16(row) as u32)?.clone(),
+                name: metadata.strings_stream.get_string_clone(method_table.columns[3].get_cell_u16(row) as u32)?,
                 signature: method_table.columns[4].get_cell_u16(row),
                 param_list: metadata.get_param_rid_list(row + 1),
 

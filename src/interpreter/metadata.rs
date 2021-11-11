@@ -11,6 +11,8 @@ mod table_stream;
 use table_stream::*;
 mod strings_stream;
 use strings_stream::*;
+mod us_stream;
+use us_stream::*;
 use super::ImageReader;
 
 use std::io;
@@ -149,8 +151,9 @@ enum MetadataType {
 }
 
 pub struct Metadata {
-    pub strings_stream: StringsStream,
     pub table_stream: TableStream,
+    pub strings_stream: StringsStream,
+    pub us_stream: USStream,
 }
 
 impl Metadata {
@@ -169,10 +172,12 @@ impl Metadata {
         reader.set_position(pe.rva_to_file_offset(md_rva))?;
         let md_header = MetadataHeader::new(reader)?;
 
-        let mut strings_stream = Default::default();
-        let mut strings_stream_loaded = false;
         let mut table_stream = Default::default();
         let mut table_stream_loaded = false;
+        let mut strings_stream = Default::default();
+        let mut strings_stream_loaded = false;
+        let mut us_stream = Default::default();
+        let mut us_stream_loaded = false;
 
         match Metadata::get_metadata_type(&md_header.stream_headers) {
             Ok(MetadataType::Compressed) => {
@@ -187,7 +192,11 @@ impl Metadata {
                             }
                         },
                         "#US" => {
-
+                            if !us_stream_loaded {
+                                reader.set_position(metadata_base_offset + sh.offset as usize)?;
+                                us_stream = USStream::new(reader, sh.size)?;
+                                us_stream_loaded = true;
+                            }
                         },
                         "#Blob" => {
 
@@ -215,14 +224,15 @@ impl Metadata {
             },
             _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "No #~ or #- stream found"))
         }
-
+        
         if !table_stream_loaded {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "No #~ stream found"));
         }
 
         Ok(Metadata {
-            strings_stream,
             table_stream,
+            strings_stream,
+            us_stream,
         })
     }
 
@@ -274,6 +284,13 @@ impl Metadata {
 
     pub fn get_param_rid_list(&self, src_rid: u32) -> RidList {
         Metadata::get_rid_list(&self.table_stream.md_tables[6], src_rid, 5, &self.table_stream.md_tables[8])
+    }
+
+    pub fn get_us_string(&self, signature: u32) -> io::Result<String> {
+        if (signature >> 24) != 0x70 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid US signature"));
+        }
+        self.us_stream.read(signature << 8 >> 8)
     }
 
     // 获取参数的拥有者方法

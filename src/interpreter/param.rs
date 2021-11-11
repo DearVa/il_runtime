@@ -18,7 +18,7 @@ impl Param {
             let token = 0x08000001 + row as u32;
             let flags = param_table.columns[0].get_cell_u16(row);
             let sequence = param_table.columns[1].get_cell_u16(row);
-            let name = metadata.strings_stream.get_string_clone(param_table.columns[2].get_cell_u16(row) as u32)?.clone();
+            let name = metadata.strings_stream.get_string_clone(param_table.columns[2].get_cell_u16(row) as u32)?;
 
             params.insert(token, Param {
                 token,
