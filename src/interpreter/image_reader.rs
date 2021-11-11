@@ -9,7 +9,7 @@ pub struct ImageReader<'a> {
 impl ImageReader<'_> {
     pub fn new(image: &Vec<u8>) -> ImageReader {
         ImageReader {
-            image: image,
+            image,
             position: 0,
         }
     }

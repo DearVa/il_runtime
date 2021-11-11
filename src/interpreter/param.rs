@@ -15,7 +15,6 @@ impl Param {
         let mut params = Vec::new();
         let param_table = &metadata.table_stream.md_tables[8];
         for row in 0..param_table.row_count {
-            let token = 0x08000001 + row as u32;
             let flags = param_table.columns[0].get_cell_u16(row);
             let sequence = param_table.columns[1].get_cell_u16(row);
             let name = metadata.strings_stream.get_string_clone(param_table.columns[2].get_cell_u16(row) as u32)?;

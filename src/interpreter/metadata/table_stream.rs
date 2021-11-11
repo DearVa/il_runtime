@@ -1,8 +1,9 @@
+use num_derive::FromPrimitive;
 use std::convert::TryInto;
 use std::fmt;
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, FromPrimitive)]
 pub enum MDTableType {
 	// Module table (00h)
 	Module,
@@ -277,42 +278,6 @@ pub enum MDColumnType {
 		HasCustomDebugInformation,
 }
 
-pub struct CodedToken {
-    pub table_types: Vec<MDTableType>,
-    pub bits: i32,
-    pub mask: i32,
-}
-
-impl CodedToken {
-    pub fn new(bits: i32, table_types: Vec<MDTableType>) -> CodedToken {
-        CodedToken {
-            table_types: table_types,
-            bits: bits,
-            mask: (1 << bits) - 1,
-        }
-    }
-
-    pub fn from_column_size(column_size: MDColumnType) -> CodedToken {
-        match column_size {
-            MDColumnType::TypeDefOrRef => CodedToken::new(2, vec![MDTableType::TypeDef, MDTableType::TypeRef, MDTableType::TypeSpec]),
-            MDColumnType::HasConstant => CodedToken::new(2, vec![MDTableType::Field, MDTableType::Param, MDTableType::Property]),
-            MDColumnType::HasCustomAttribute => CodedToken::new(5, vec![MDTableType::Method, MDTableType::Field, MDTableType::TypeRef, MDTableType::TypeDef, MDTableType::Param, MDTableType::InterfaceImpl, MDTableType::MemberRef, MDTableType::Module, MDTableType::DeclSecurity, MDTableType::Property, MDTableType::Event, MDTableType::StandAloneSig, MDTableType::ModuleRef, MDTableType::TypeSpec, MDTableType::Assembly, MDTableType::AssemblyRef, MDTableType::File, MDTableType::ExportedType, MDTableType::ManifestResource, MDTableType::GenericParam, MDTableType::GenericParamConstraint, MDTableType::MethodSpec, MDTableType::Module, MDTableType::Module]),
-            MDColumnType::HasFieldMarshal => CodedToken::new(1, vec![MDTableType::Field, MDTableType::Param]),
-            MDColumnType::HasDeclSecurity => CodedToken::new(2, vec![MDTableType::TypeDef, MDTableType::Method, MDTableType::Assembly]),
-            MDColumnType::MemberRefParent => CodedToken::new(3, vec![MDTableType::TypeDef, MDTableType::TypeRef, MDTableType::ModuleRef, MDTableType::Method, MDTableType::TypeSpec]),
-            MDColumnType::HasSemantic => CodedToken::new(1, vec![MDTableType::Event, MDTableType::Property]),
-            MDColumnType::MethodDefOrRef => CodedToken::new(1, vec![MDTableType::Method, MDTableType::MemberRef]),
-            MDColumnType::MemberForwarded => CodedToken::new(1, vec![MDTableType::Field, MDTableType::Method]),
-            MDColumnType::Implementation => CodedToken::new(2, vec![MDTableType::File, MDTableType::AssemblyRef, MDTableType::ExportedType]),
-            MDColumnType::CustomAttributeType => CodedToken::new(3, vec![MDTableType::Module, MDTableType::Module, MDTableType::Method, MDTableType::MemberRef]),
-            MDColumnType::ResolutionScope => CodedToken::new(2, vec![MDTableType::Module, MDTableType::ModuleRef, MDTableType::AssemblyRef, MDTableType::TypeRef]),
-            MDColumnType::TypeOrMethodDef => CodedToken::new(1, vec![MDTableType::TypeDef, MDTableType::Method]),
-            MDColumnType::HasCustomDebugInformation => CodedToken::new(5, vec![MDTableType::Method, MDTableType::Field, MDTableType::TypeRef, MDTableType::TypeDef, MDTableType::Param, MDTableType::InterfaceImpl, MDTableType::MemberRef, MDTableType::Module, MDTableType::DeclSecurity, MDTableType::Property, MDTableType::Event, MDTableType::StandAloneSig, MDTableType::ModuleRef, MDTableType::TypeSpec, MDTableType::Assembly, MDTableType::AssemblyRef, MDTableType::File, MDTableType::ExportedType, MDTableType::ManifestResource, MDTableType::GenericParam, MDTableType::GenericParamConstraint, MDTableType::MethodSpec, MDTableType::Document, MDTableType::LocalScope, MDTableType::LocalVariable, MDTableType::LocalConstant, MDTableType::ImportScope]),
-            _ => panic!("Invalid column size"),
-        }
-    }
-}
-
 pub struct MDColumn {
     pub name: &'static str,
     pub column_type: MDColumnType,  // 列的类型
@@ -453,6 +418,7 @@ impl fmt::Debug for MDTable {
 use std::io;
 use bitflags::bitflags;
 use crate::interpreter::image_reader::ImageReader;
+use crate::interpreter::metadata::md_token::CodedToken;
 
 bitflags! {
     pub struct MDStreamFlags: u8 {

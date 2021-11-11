@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, ptr};
 use std::fs::File;
 use std::io::prelude::*;
 use std::collections::VecDeque;
@@ -18,6 +18,8 @@ mod type_def;
 use type_def::*;
 mod type_ref;
 use type_ref::*;
+mod member_ref;
+use member_ref::*;
 mod method;
 use method::*;
 mod param;
@@ -31,10 +33,11 @@ pub struct Interpreter {
     pub pe: PE,
     pub metadata: Metadata,
 
-    pub type_refs: Vec<TypeRef>,   //  <token(0x01000001...), TypeRef>
-    pub type_defs: Vec<TypeDef>,   //  <token(0x01000001...), TypeRef>
-    pub methods: Vec<Method>,      //  <token(0x06000001...), Method>
-    pub params: Vec<Param>,        //  <token(0x08000001...), Param>
+    pub type_refs: Vec<TypeRef>,        //  <token(0x01000001...), TypeRef>
+    pub type_defs: Vec<TypeDef>,        //  <token(0x01000001...), TypeRef>
+    pub methods: Vec<Method>,           //  <token(0x06000001...), Method>
+    pub params: Vec<Param>,             //  <token(0x08000001...), Param>
+    pub member_refs: Vec<MemberRef>,    //  <token(0x0A000001...), MemberRef>
 
     pub stack: VecDeque<ILType>,
     pub objects: Vec<Object>,
@@ -75,6 +78,8 @@ impl Interpreter {
             println!("{:?}", param);
         }
 
+        let member_refs = MemberRef::read_member_refs(&metadata)?;
+
         Ok(Interpreter {
             image,
             pe,
@@ -84,6 +89,7 @@ impl Interpreter {
             type_defs,
             methods,
             params,
+            member_refs,
 
             stack: VecDeque::new(),
             objects: Vec::new(),
@@ -183,17 +189,17 @@ impl Interpreter {
                 Some(OpCode::Ldargs) => {
                     let index = self.image[rip];
                     rip += 1;
-                    todo!();
+                    self.stack.push_back(params[index as usize]);
                 },
                 Some(OpCode::Ldargas) => {
                     let index = self.image[rip];
                     rip += 1;
-                    todo!();
+                    self.stack.push_back(ILType::Ptr(ptr::addr_of_mut!(params[index as usize])));
                 },
                 Some(OpCode::Stargs) => {
                     let index = self.image[rip];
                     rip += 1;
-                    todo!();
+                    params[index as usize] = self.stack.pop_back().unwrap();
                 },
                 Some(OpCode::Ldlocs) => {
                     let index = self.image[rip];
@@ -203,12 +209,12 @@ impl Interpreter {
                 Some(OpCode::Ldlocas) => {
                     let index = self.image[rip];
                     rip += 1;
-                    todo!();
+                    self.stack.push_back(ILType::Ptr(ptr::addr_of_mut!(locals[index as usize])));
                 },
                 Some(OpCode::Stlocs) => {
                     let index = self.image[rip];
                     rip += 1;
-                    todo!();
+                    locals[index as usize] = self.stack.pop_back().unwrap();
                 },
                 Some(OpCode::Ldnull) => {
                     self.stack.push_back(ILType::Ref(ILRefType::Null));
@@ -275,7 +281,10 @@ impl Interpreter {
                     self.stack.pop_back();
                 },
                 Some(OpCode::Jmp) => {
-                    todo!();
+                    assert_eq!(self.params.len(), 0);
+                    let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
+                    self.il_call(token);
+                    return;
                 },
                 Some(OpCode::Call) => {
                     let token = u32::from_le_bytes(self.image[rip..rip + 4].try_into().unwrap());
@@ -461,6 +470,9 @@ impl Interpreter {
 
     fn convert_to_string(&self, val: &ILType) -> String {
         match val {
+            ILType::Val(v) => {
+                v.to_string()
+            },
             ILType::Ref(ILRefType::String(s)) => {
                 self.strings[*s].to_string()
             },
@@ -470,8 +482,8 @@ impl Interpreter {
             ILType::Ref(ILRefType::Null) => {
                 "null".to_string()
             },
-            ILType::Val(v) => {
-                v.to_string()
+            ILType::Ptr(p) => {
+                self.convert_to_string(unsafe { &**p })
             },
         }
     }

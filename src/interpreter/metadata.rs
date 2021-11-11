@@ -13,6 +13,8 @@ mod strings_stream;
 use strings_stream::*;
 mod us_stream;
 use us_stream::*;
+mod md_token;
+use md_token::*;
 use super::ImageReader;
 
 use std::io;
@@ -295,6 +297,16 @@ impl Metadata {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid US signature"));
         }
         self.us_stream.read(signature & 0x00FFFFFF)
+    }
+
+    pub fn resolve_member_ref(&self, coded_token: u32) -> Option<u32> {
+        let member_ref_token = CodedToken::from_column_size(MDColumnType::MemberRefParent);
+        match member_ref_token.decode(coded_token) {
+            None => None,
+            Some(token) => {
+                Some((MDToken::to_table_type(token) << 24) + MDToken::to_rid(token))
+            },
+        }
     }
 
     // 获取参数的拥有者方法

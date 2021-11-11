@@ -7,7 +7,7 @@ pub struct USStream {
 }
 
 impl USStream {
-    pub fn new(reader: &mut ImageReader, size: u32) -> io::Result<Self> {
+    pub fn new(reader: &mut ImageReader, size: u32) -> io::Result<USStream> {
         let mut data = vec![0; size as usize];
         reader.read_bytes_vec(&mut data)?;
 

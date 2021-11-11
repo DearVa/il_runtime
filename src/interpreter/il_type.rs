@@ -47,6 +47,7 @@ pub enum ILRefType {
 pub enum ILType {
     Val(ILValType),
     Ref(ILRefType),
+    Ptr(*mut ILType),
 }
 
 impl ILType {
@@ -81,11 +82,16 @@ impl Add for ILType {
                     (ILValType::Int32(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int32(i1 + i2)),
                     (ILValType::Int32(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 as i64 + i2)),
                     (ILValType::Int64(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int64(i1 + i2 as i64)),
+                    (ILValType::Int64(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 + i2)),
                     (ILValType::Single(i1), ILValType::Single(i2)) => ILType::Val(ILValType::Single(i1 + i2)),
                     (ILValType::Double(i1), ILValType::Double(i2)) => ILType::Val(ILValType::Double(i1 + i2)),
                     _ => panic!("Invalid Operation")
                 }
-            }
+            },
+            (ILType::Ptr(p1), ILType::Val(ILValType::Int32(i2))) => ILType::Ptr(unsafe { p1.offset(i2 as isize) }),
+            (ILType::Ptr(p1), ILType::Val(ILValType::Int64(i2))) => ILType::Ptr(unsafe { p1.offset(i2 as isize) }),
+            (ILType::Val(ILValType::Int32(i1)), ILType::Ptr(p2)) => ILType::Ptr(unsafe { p2.offset(i1 as isize) }),
+            (ILType::Val(ILValType::Int64(i1)), ILType::Ptr(p2)) => ILType::Ptr(unsafe { p2.offset(i1 as isize) }),
             _ => panic!("Invalid Operation")
         }
     }
@@ -101,6 +107,7 @@ impl Sub for ILType {
                     (ILValType::Int32(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int32(i1 - i2)),
                     (ILValType::Int32(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 as i64 - i2)),
                     (ILValType::Int64(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int64(i1 - i2 as i64)),
+                    (ILValType::Int64(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 - i2)),
                     (ILValType::Single(i1), ILValType::Single(i2)) => ILType::Val(ILValType::Single(i1 - i2)),
                     (ILValType::Double(i1), ILValType::Double(i2)) => ILType::Val(ILValType::Double(i1 - i2)),
                     _ => panic!("Invalid Operation")
