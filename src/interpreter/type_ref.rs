@@ -29,3 +29,14 @@ impl TypeRef {
         Ok(type_refs)
     }
 }
+
+impl Clone for TypeRef {
+    fn clone(&self) -> TypeRef {
+        TypeRef {
+            token: self.token,
+            resolution_scope: self.resolution_scope,
+            name: self.name.clone(),
+            namespace: self.namespace.clone(),
+        }
+    }
+}

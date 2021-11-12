@@ -335,6 +335,16 @@ impl MDColumn {
         u32::from_le_bytes(self.data[row as usize * 4..(row + 1) as usize * 4].try_into().unwrap())
     }
 
+    pub fn get_cell_u16_or_u32(&self, row: u32) -> u32 {
+        if self.size == 2 {
+            self.get_cell_u16(row) as u32
+        } else if self.size == 4 {
+            self.get_cell_u32(row)
+        } else {
+            panic!("unsupported size");
+        }
+    }
+
     pub fn get_cell_u64(&self, row: u32) -> u64 {
         assert_eq!(self.size, 8);
         u64::from_le_bytes(self.data[row as usize * 8..(row + 1) as usize * 8].try_into().unwrap())
@@ -516,8 +526,8 @@ impl TableStream {
             md_table.read_all(reader)?;
         }
 
-        println!("{:?}", md_tables[6]);  // 输出Method和Param
-        println!("{:?}", md_tables[8]);
+        // println!("{:?}", md_tables[6]);  // 输出Method和Param
+        // println!("{:?}", md_tables[8]);
 
         Ok(TableStream {
             reserved1,
@@ -706,8 +716,8 @@ impl TableStream {
             MDTableType::Constant,
             "Constant",
             vec![
-                MDColumn::new(0, "Type", MDColumnType::UInt16),
-                MDColumn::new(1, "Padding", MDColumnType::UInt16),
+                MDColumn::new(0, "Type", MDColumnType::Byte),
+                MDColumn::new(1, "Padding", MDColumnType::Byte),
                 MDColumn::new(2, "Parent", MDColumnType::HasConstant),
                 MDColumn::new(3, "Value", MDColumnType::Blob),
             ]
@@ -815,7 +825,7 @@ impl TableStream {
             "MethodSemantics",
             vec![
                 MDColumn::new(0, "Semantics", MDColumnType::UInt16),
-                MDColumn::new(1, "Method", MDColumnType::MethodDefOrRef),
+                MDColumn::new(1, "Method", MDColumnType::Method),
                 MDColumn::new(2, "Association", MDColumnType::HasSemantic),
             ]
         ));
@@ -888,7 +898,6 @@ impl TableStream {
                 MDColumn::new(6, "PublicKey", MDColumnType::Blob),
                 MDColumn::new(7, "Name", MDColumnType::Strings),
                 MDColumn::new(8, "Locale", MDColumnType::Strings),
-                MDColumn::new(9, "HashValue", MDColumnType::Blob),
             ]
         ));
         tables.push(MDTable::new(
@@ -978,17 +987,30 @@ impl TableStream {
                 MDColumn::new(1, "EnclosingClass", MDColumnType::TypeDef),
             ]
         ));
-        tables.push(MDTable::new(
-            MDTableType::GenericParam,
-            "GenericParam",
-            vec![
-                MDColumn::new(0, "Number", MDColumnType::UInt16),
-                MDColumn::new(1, "Flags", MDColumnType::UInt16),
-                MDColumn::new(2, "Owner", MDColumnType::TypeOrMethodDef),
-                MDColumn::new(3, "Name", MDColumnType::Strings),
-                MDColumn::new(4, "Kind", MDColumnType::TypeDefOrRef),
-            ]
-        ));
+        if major_version == 1 && minor_version == 1 {
+            tables.push(MDTable::new(
+                MDTableType::GenericParam,
+                "GenericParam",
+                vec![
+                    MDColumn::new(0, "Number", MDColumnType::UInt16),
+                    MDColumn::new(1, "Flags", MDColumnType::UInt16),
+                    MDColumn::new(2, "Owner", MDColumnType::TypeOrMethodDef),
+                    MDColumn::new(3, "Name", MDColumnType::Strings),
+                    MDColumn::new(4, "Kind", MDColumnType::TypeDefOrRef),
+                ]
+            ));
+        } else {
+            tables.push(MDTable::new(
+                MDTableType::GenericParam,
+                "GenericParam",
+                vec![
+                    MDColumn::new(0, "Number", MDColumnType::UInt16),
+                    MDColumn::new(1, "Flags", MDColumnType::UInt16),
+                    MDColumn::new(2, "Owner", MDColumnType::TypeOrMethodDef),
+                    MDColumn::new(3, "Name", MDColumnType::Strings),
+                ]
+            ));
+        }
         tables.push(MDTable::new(
             MDTableType::MethodSpec,
             "MethodSpec",
@@ -1012,10 +1034,10 @@ impl TableStream {
             MDTableType::Document,
             "Document",
             vec![
-                MDColumn::new(0, "Name", MDColumnType::Strings),
-                MDColumn::new(1, "HashAlgorithm", MDColumnType::UInt32),
+                MDColumn::new(0, "Name", MDColumnType::Blob),
+                MDColumn::new(1, "HashAlgorithm", MDColumnType::GUID),
                 MDColumn::new(2, "Hash", MDColumnType::Blob),
-                MDColumn::new(3, "Language", MDColumnType::UInt32),
+                MDColumn::new(3, "Language", MDColumnType::GUID),
             ]
         ));
         tables.push(MDTable::new(

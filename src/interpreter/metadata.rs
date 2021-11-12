@@ -11,8 +11,12 @@ mod table_stream;
 use table_stream::*;
 mod strings_stream;
 use strings_stream::*;
+mod compressed_stream;
+use compressed_stream::*;
 mod us_stream;
 use us_stream::*;
+mod blob_stream;
+use blob_stream::*;
 mod md_token;
 use md_token::*;
 use super::ImageReader;
@@ -156,6 +160,7 @@ pub struct Metadata {
     pub table_stream: TableStream,
     pub strings_stream: StringsStream,
     pub us_stream: USStream,
+    pub blob_stream: BlobStream,
 }
 
 impl Metadata {
@@ -180,6 +185,8 @@ impl Metadata {
         let mut strings_stream_loaded = false;
         let mut us_stream = Default::default();
         let mut us_stream_loaded = false;
+        let mut blob_stream = Default::default();
+        let mut blob_stream_loaded = false;
 
         match Metadata::get_metadata_type(&md_header.stream_headers) {
             Ok(MetadataType::Compressed) => {
@@ -201,7 +208,11 @@ impl Metadata {
                             }
                         },
                         "#Blob" => {
-
+                            if !blob_stream_loaded {
+                                reader.set_position(metadata_base_offset + sh.offset as usize)?;
+                                blob_stream = BlobStream::new(reader, sh.size)?;
+                                blob_stream_loaded = true;
+                            }
                         },
                         "#GUID" => {
 
@@ -235,6 +246,7 @@ impl Metadata {
             table_stream,
             strings_stream,
             us_stream,
+            blob_stream,
         })
     }
 
@@ -302,6 +314,16 @@ impl Metadata {
     pub fn resolve_member_ref(&self, coded_token: u32) -> Option<u32> {
         let member_ref_token = CodedToken::from_column_size(MDColumnType::MemberRefParent);
         match member_ref_token.decode(coded_token) {
+            None => None,
+            Some(token) => {
+                Some((MDToken::to_table_type(token) << 24) + MDToken::to_rid(token))
+            },
+        }
+    }
+
+    pub fn resolve_resolution_scope(&self, coded_token: u32) -> Option<u32> {
+        let resolution_scope_token = CodedToken::from_column_size(MDColumnType::ResolutionScope);
+        match resolution_scope_token.decode(coded_token) {
             None => None,
             Some(token) => {
                 Some((MDToken::to_table_type(token) << 24) + MDToken::to_rid(token))

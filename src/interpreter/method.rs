@@ -10,7 +10,8 @@ pub struct Method {
     pub attributes: u16,            // 方法属性，比如是否为static，virtual，abstract等
     pub flags: u16,                 // 方法标志，这和MDTable中的flag不同
     pub name: String,               // 方法名
-    pub signature: u16,             // 签名
+    pub namespace: String,               // 方法名
+    pub signature: u32,             // 签名
     pub param_list: RidList,        // 参数列表，对应ParamTable
     pub owner_type: u32,            // 方法所属类型，加上0x06000001就是对应的方法
 
@@ -41,6 +42,9 @@ impl Method {
             }
 
             let rva = method_table.columns[0].get_cell_u32(row);
+            if rva == 0 {
+                continue;
+            }
             let header_position = pe.rva_to_file_offset(rva);
             reader.set_position(header_position)?;
 
@@ -84,8 +88,9 @@ impl Method {
                 impl_flags: method_table.columns[1].get_cell_u16(row),
                 attributes: method_table.columns[2].get_cell_u16(row),
                 flags,
-                name: metadata.strings_stream.get_string_clone(method_table.columns[3].get_cell_u16(row) as u32)?,
-                signature: method_table.columns[4].get_cell_u16(row),
+                name: metadata.strings_stream.get_string_clone(method_table.columns[3].get_cell_u16_or_u32(row))?,
+                namespace: metadata.strings_stream.get_string_clone(method_table.columns[4].get_cell_u16_or_u32(row))?,
+                signature: method_table.columns[4].get_cell_u16_or_u32(row),
                 param_list: metadata.get_param_rid_list(row + 1),
                 owner_type: type_map_index as u32 - 1,
 

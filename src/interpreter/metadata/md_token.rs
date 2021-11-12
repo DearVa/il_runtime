@@ -1,5 +1,3 @@
-use num_traits::FromPrimitive;
-
 use crate::interpreter::metadata::table_stream::MDColumnType;
 use super::table_stream::MDTableType;
 
