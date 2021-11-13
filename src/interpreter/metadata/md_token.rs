@@ -1,3 +1,5 @@
+use num_traits::FromPrimitive;
+
 use crate::interpreter::metadata::table_stream::MDColumnType;
 use super::table_stream::MDTableType;
 
@@ -9,6 +11,10 @@ impl MDToken {
     pub const RID_MASK: u32 = 0x00FFFFFF;
     pub const RID_MAX: u32 = 0x00FFFFFF;
     pub const TABLE_SHIFT: i32 = 24;
+
+    pub fn new(token: u32) -> MDToken {
+        MDToken { token }
+    }
 
     pub fn to_rid(token: u32) -> u32 {
         token & MDToken::RID_MASK
@@ -61,5 +67,12 @@ impl CodedToken {
             return None;
         }
         Some(((self.table_types[index as usize] as u32) << MDToken::TABLE_SHIFT) | rid)
+    }
+
+    pub fn decode_as_md_table_type(&mut self, coded_token: u32) -> Option<MDTableType> {
+        match self.decode(coded_token) {
+            Some(token) => FromPrimitive::from_u8(MDToken::to_table_type(token) as u8),
+            None => None,
+        }
     }
 }

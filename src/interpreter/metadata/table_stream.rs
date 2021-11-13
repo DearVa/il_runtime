@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use std::fmt;
 
 #[repr(u8)]
-#[derive(Copy, Clone, FromPrimitive)]
+#[derive(Copy, Clone, FromPrimitive, Eq, PartialEq, Debug)]
 pub enum MDTableType {
 	// Module table (00h)
 	Module,

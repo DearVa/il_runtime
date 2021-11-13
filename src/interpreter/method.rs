@@ -1,8 +1,9 @@
-use std::io;
+use std::{fmt::{self, Debug, Formatter}, io};
+
+use crate::interpreter::CallingConventionSig;
 
 use super::{image_reader::ImageReader, metadata::*, RidList};
 
-#[derive(Debug)]
 pub struct Method {
     pub token: u32,                 // 形如0x06000001
     pub rva: u32,                   // 方法入口在image中的偏移
@@ -10,8 +11,7 @@ pub struct Method {
     pub attributes: u16,            // 方法属性，比如是否为static，virtual，abstract等
     pub flags: u16,                 // 方法标志，这和MDTable中的flag不同
     pub name: String,               // 方法名
-    pub namespace: String,               // 方法名
-    pub signature: u32,             // 签名
+    pub signature: Option<CallingConventionSig>, // 签名
     pub param_list: RidList,        // 参数列表，对应ParamTable
     pub owner_type: u32,            // 方法所属类型，加上0x06000001就是对应的方法
 
@@ -82,17 +82,18 @@ impl Method {
 
             // TODO: 读取locals
 
+            let owner_type_rid = type_map_index as u32;
             methods.push(Method {
                 token: 0x06000001 + row as u32,
                 rva,
                 impl_flags: method_table.columns[1].get_cell_u16(row),
                 attributes: method_table.columns[2].get_cell_u16(row),
                 flags,
+                // namespace: metadata.table_stream.md_tables[2].get_cell_string(method_table.columns[3].get_cell_u32(row))?,
                 name: metadata.strings_stream.get_string_clone(method_table.columns[3].get_cell_u16_or_u32(row))?,
-                namespace: metadata.strings_stream.get_string_clone(method_table.columns[4].get_cell_u16_or_u32(row))?,
-                signature: method_table.columns[4].get_cell_u16_or_u32(row),
+                signature: CallingConventionSig::read_metadata_sig(metadata, method_table.columns[4].get_cell_u16_or_u32(row)),
                 param_list: metadata.get_param_rid_list(row + 1),
-                owner_type: type_map_index as u32 - 1,
+                owner_type: owner_type_rid - 1,
 
                 max_stack,
                 header_size,
@@ -123,6 +124,20 @@ impl Method {
 
     pub fn is_static(&self) -> bool {
         self.attributes & 0x10 != 0
+    }
+}
+
+impl Debug for Method {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match &self.signature {
+            Some(CallingConventionSig::MethodSig(method)) => {
+                write!(f, "{} {}{}", method.get_ret_type_string(), self.name, method.get_params_type_string())?;
+            },
+            _ => {
+                write!(f, "Method: {}", self.name)?;
+            },
+        }
+        Ok(())
     }
 }
 

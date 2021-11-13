@@ -70,6 +70,7 @@ impl Assembly {
         for type_def in type_defs.values() {
             method_to_type_map.push(type_def.method_list.start_rid);
         }
+        method_to_type_map.sort();
 
         let methods = Method::read_methods(&pe, &metadata, method_to_type_map, &mut reader)?;
         let params = Param::read_params(&metadata)?;
@@ -139,7 +140,12 @@ impl Interpreter {
     pub fn new(assembly_path: String) -> io::Result<Interpreter> {
         let mut assemblies = Vec::new();
 
-        assemblies.push(Assembly::new(&assembly_path)?);
+        let assembly = Assembly::new(&assembly_path)?;
+        println!("{}", "Assembly Methods: ".green());
+        for method in assembly.methods.iter() {
+            println!("{:?}", method);
+        }
+        assemblies.push(assembly);
 
         Ok(Interpreter {
             assemblies,

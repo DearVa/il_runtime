@@ -1,8 +1,10 @@
-use super::metadata::md_token::*;
+use std::fmt::{Debug, Display, Error, Formatter};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use bitflags::bitflags;
 
+use super::metadata::md_token::*;
+use crate::interpreter::metadata::table_stream::{MDColumnType, MDTableType};
 use super::metadata::{CompressedStream, Metadata};
 
 bitflags! {
@@ -197,9 +199,8 @@ impl CallingConventionSig {
                 }
                 return Some(CallingConventionSig::MethodSig(method_sig));
             },
-            _ => return None,
+            _ => None,
         }
-        None
     }
 }
 
@@ -273,8 +274,8 @@ pub enum TypeSig {
     CorLibType(CorLibType),
     PtrSig(NoLeafSig),
     ByRefSig(NoLeafSig),
-    ValueTypeSig(TypeDefOrRefSig),
-    ClassSig(TypeDefOrRefSig),
+    ValueTypeSig(Option<TypeDefOrRefSig>),
+    ClassSig(Option<TypeDefOrRefSig>),
     ArraySig(ArraySigBase),
     SZArraySig(ArraySigBase),
     CModReqdSig(NoLeafSig),
@@ -350,13 +351,35 @@ impl TypeSig {
         }
     }
 
-    fn read_type_def_or_ref(allow_type_spec: bool, stream: &CompressedStream, offset: &mut usize) -> TypeDefOrRefSig {
-        // let coded_token = stream.try_read_compressed_u32(offset).unwrap();
-        // CodedToken::from_column_size(CodedToken::TypeDefOrRef).decode(coded_token)
-        todo!();
+    fn read_type_def_or_ref(allow_type_spec: bool, stream: &CompressedStream, offset: &mut usize) -> Option<TypeDefOrRefSig> {
+        match stream.try_read_compressed_u32(offset) {
+            Err(_) => None,
+            Ok(coded_token) => {
+                match CodedToken::from_column_size(MDColumnType::TypeDefOrRef).decode_as_md_table_type(coded_token) {
+                    None => None,
+                    Some(table_type) => {
+                        if !allow_type_spec && table_type == MDTableType::TypeDef {
+                            None
+                        } else {
+                            Some(TypeDefOrRefSig::new(MDToken::to_table_type(coded_token)))
+                        }
+                    },
+                }
+            }
+        }
     }
 }
 
+impl Display for TypeSig {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            TypeSig::CorLibType(val) => write!(f, "{:?}", val),
+            _ => write!(f, "Non-CorLib Type")
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum CorLibType {
     Void,
     Boolean,
@@ -423,11 +446,11 @@ impl FnPtrSig {
 #[derive(Default)]
 pub struct TypeDefOrRefSig {
     pub base: LeafSig,
-    pub type_def_or_ref: i32,
+    pub type_def_or_ref: u32,
 }
 
 impl TypeDefOrRefSig {
-    pub fn new(type_def_or_ref: i32) -> TypeDefOrRefSig {
+    pub fn new(type_def_or_ref: u32) -> TypeDefOrRefSig {
         TypeDefOrRefSig {
             base: LeafSig::default(),
             type_def_or_ref,
@@ -441,9 +464,9 @@ pub struct CorLibTypeSig {
 }
 
 impl CorLibTypeSig {
-    pub fn new(type_def_or_ref_tag: i32, element_type: ElementType) -> CorLibTypeSig {
+    pub fn new(type_def_or_ref: u32, element_type: ElementType) -> CorLibTypeSig {
         CorLibTypeSig {
-            base: TypeDefOrRefSig::new(type_def_or_ref_tag),
+            base: TypeDefOrRefSig::new(type_def_or_ref),
             element_type,
         }
     }
@@ -534,6 +557,17 @@ impl MethodSig {
             base: MethodBaseSig::new(calling_convention),
             origin_token: 0,
         }
+    }
+
+    pub fn get_ret_type_string(&self) -> String {
+        match &self.base.ret_type {
+            None => String::default(),
+            Some(type_sig) => format!("{}", type_sig),
+        }
+    }
+
+    pub fn get_params_type_string(&self) -> String {
+        format!("({})", self.base.parameters.iter().map(|t| format!("{}", t)).collect::<Vec<String>>().join(", "))
     }
 }
 

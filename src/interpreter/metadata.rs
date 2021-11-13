@@ -7,7 +7,7 @@ mod image_cor20_header;
 use image_cor20_header::*;
 mod metadata_header;
 use metadata_header::*;
-mod table_stream;
+pub mod table_stream;
 use table_stream::*;
 mod strings_stream;
 use strings_stream::*;
