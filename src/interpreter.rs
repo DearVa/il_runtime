@@ -14,6 +14,8 @@ mod image_reader;
 use image_reader::*;
 mod metadata;
 use metadata::*;
+mod signature;
+pub use signature::*;
 mod type_def;
 use type_def::*;
 mod type_ref;
@@ -39,12 +41,12 @@ pub struct Assembly {
     pub pe: PE,
     pub metadata: Metadata,
 
-    pub type_refs: Vec<TypeRef>,        //  <token(0x01000001...), TypeRef>
-    pub type_defs: Vec<TypeDef>,        //  <token(0x01000001...), TypeRef>
-    pub methods: Vec<Method>,           //  <token(0x06000001...), Method>
-    pub params: Vec<Param>,             //  <token(0x08000001...), Param>
-    pub member_refs: Vec<MemberRef>,    //  <token(0x0A000001...), MemberRef>
-    pub assembly_refs: Vec<AssemblyRef>,//  <token(0x23000001...), AssemblyRef>
+    pub type_refs: Vec<TypeRef>,                //  <token(0x01000001...), TypeRef>
+    pub type_defs: HashMap<String, TypeDef>,    //  <namespace.classname, TypeDef>
+    pub methods: Vec<Method>,                   //  <token(0x06000001...), Method>
+    pub params: Vec<Param>,                     //  <token(0x08000001...), Param>
+    pub member_refs: Vec<MemberRef>,            //  <token(0x0A000001...), MemberRef>
+    pub assembly_refs: Vec<AssemblyRef>,        //  <token(0x23000001...), AssemblyRef>
 }
 
 impl Assembly {
@@ -65,7 +67,7 @@ impl Assembly {
         // 那么这个数组就存放的是[1, 1, 4, 4]
         // read_methods的时候，假设一个method的Rid是3，那么就能知道4是第一个比3大的，是第3个方法的Method，即0x06000003
         let mut method_to_type_map = Vec::new();
-        for type_def in type_defs.iter() {
+        for type_def in type_defs.values() {
             method_to_type_map.push(type_def.method_list.start_rid);
         }
 
@@ -178,7 +180,8 @@ impl Interpreter {
         self.stack.push_back(ILType::Ref(ILRefType::String(self.strings.len() - 1)));
     }
 
-    fn load_external_method(&mut self, method_token: u32) -> &Method {
+    // 加载其他Assembly中的方法
+    fn load_dest_method(&mut self, method_token: u32) -> &Method {
         let assembly = &self.assemblies[self.assembly_index];
         let member_ref = &assembly.member_refs[(method_token & 0x00FFFFFF) as usize - 1];
         let class = member_ref.class;
@@ -192,11 +195,8 @@ impl Interpreter {
                 }
 
                 let assembly = &self.assemblies[self.assembly_index];
-                for type_def in assembly.type_defs.iter() {
-                    if type_def.name == type_ref.name && type_def.namespace == type_ref.namespace {
-                        todo!();
-                    }
-                }
+                let dest_type = assembly.type_defs.get(&type_ref.full_name).unwrap();
+                
             }
         }
         panic!("Invalid method_token")
@@ -214,7 +214,7 @@ impl Interpreter {
                     &assembly.methods[(method_token & 0x00FFFFFF) as usize - 1]
                 },
                 0x0A => {  // 需要先找到MemberRef，再找到TypeRef，最后定位到AssemblyRef
-                    self.load_external_method(method_token)
+                    self.load_dest_method(method_token)
                 },
                 _ => panic!("Invalid method_token")
             };

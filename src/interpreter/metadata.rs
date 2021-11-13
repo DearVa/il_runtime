@@ -12,12 +12,12 @@ use table_stream::*;
 mod strings_stream;
 use strings_stream::*;
 mod compressed_stream;
-use compressed_stream::*;
+pub use compressed_stream::*;
 mod us_stream;
 use us_stream::*;
 mod blob_stream;
 use blob_stream::*;
-mod md_token;
+pub mod md_token;
 use md_token::*;
 use super::ImageReader;
 

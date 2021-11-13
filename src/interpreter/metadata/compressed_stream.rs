@@ -1,4 +1,4 @@
-use std::io;
+use std::{convert::TryInto, io};
 use crate::interpreter::image_reader::ImageReader;
 
 #[derive(Debug, Default)]
@@ -14,6 +14,12 @@ impl CompressedStream {
         Ok(CompressedStream { 
             data 
         })
+    }
+
+    pub fn from_data(data: Vec<u8>) -> CompressedStream {
+        CompressedStream {
+            data
+        }
     }
 
     pub fn try_read_compressed_u32(&self, offset: &mut usize) -> io::Result<u32> {
@@ -44,5 +50,14 @@ impl CompressedStream {
         let b = self.data[*offset];
         *offset += 1;
         Ok(b)
+    }
+
+    pub fn read_u64(&self, offset: &mut usize) -> io::Result<u64> {
+        if *offset + 8 >= self.data.len() {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Unexpected end of image"));
+        }
+        let result = u64::from_le_bytes(self.data[*offset..*offset + 8].try_into().unwrap());
+        *offset += 8;
+        Ok(result)
     }
 }

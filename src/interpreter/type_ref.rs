@@ -5,6 +5,7 @@ use super::metadata::Metadata;
 pub struct TypeRef {
     pub token: u32,  // 形如0x01000001
     pub resolution_scope: u16,
+    pub full_name: String,
     pub name: String,
     pub namespace: String,
 }
@@ -17,10 +18,12 @@ impl TypeRef {
             let resolution_scope = type_ref_table.columns[0].get_cell_u16(row);
             let name = metadata.strings_stream.get_string_clone(type_ref_table.columns[1].get_cell_u16(row) as u32)?;
             let namespace = metadata.strings_stream.get_string_clone(type_ref_table.columns[2].get_cell_u16(row) as u32)?;
+            let full_name = namespace.clone() + "." + &name;
 
             type_refs.push(TypeRef { 
                 token: 0x01000001 + row as u32,
-                resolution_scope, 
+                resolution_scope,
+                full_name,
                 name, 
                 namespace,
             });
@@ -35,6 +38,7 @@ impl Clone for TypeRef {
         TypeRef {
             token: self.token,
             resolution_scope: self.resolution_scope,
+            full_name: self.full_name.clone(),
             name: self.name.clone(),
             namespace: self.namespace.clone(),
         }
