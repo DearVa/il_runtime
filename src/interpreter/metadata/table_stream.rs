@@ -5,286 +5,285 @@ use std::fmt;
 #[repr(u8)]
 #[derive(Copy, Clone, FromPrimitive, Eq, PartialEq, Debug)]
 pub enum MDTableType {
-	// Module table (00h)
+	/// Module table (00h)
 	Module,
-	// TypeRef table (01h)
+	/// TypeRef table (01h)
 	TypeRef,
-	// TypeDef table (02h)
+	/// TypeDef table (02h)
 	TypeDef,
-	// FieldPtr table (03h)
+	/// FieldPtr table (03h)
 	FieldPtr,
-	// Field table (04h)
+	/// Field table (04h)
 	Field,
-	// MethodPtr table (05h)
+	/// MethodPtr table (05h)
 	MethodPtr,
-	// Method table (06h)
+	/// Method table (06h)
 	Method,
-	// ParamPtr table (07h)
+	/// ParamPtr table (07h)
 	ParamPtr,
-	// Param table (08h)
+	/// Param table (08h)
 	Param,
-	// InterfaceImpl table (09h)
+	/// InterfaceImpl table (09h)
 	InterfaceImpl,
-	// MemberRef table (0Ah)
+	/// MemberRef table (0Ah)
 	MemberRef,
-	// Constant table (0Bh)
+	/// Constant table (0Bh)
 	Constant,
-	// CustomAttribute table (0Ch)
+	/// CustomAttribute table (0Ch)
 	CustomAttribute,
-	// FieldMarshal table (0Dh)
+	/// FieldMarshal table (0Dh)
 	FieldMarshal,
-	// DeclSecurity table (0Eh)
+	/// DeclSecurity table (0Eh)
 	DeclSecurity,
-	// ClassLayout table (0Fh)
+	/// ClassLayout table (0Fh)
 	ClassLayout,
-	// FieldLayout table (10h)
+	/// FieldLayout table (10h)
 	FieldLayout,
-	// StandAloneSig table (11h)
+	/// StandAloneSig table (11h)
 	StandAloneSig,
-	// EventMap table (12h)
+	/// EventMap table (12h)
 	EventMap,
-	// EventPtr table (13h)
+	/// EventPtr table (13h)
 	EventPtr,
-	// Event table (14h)
+	/// Event table (14h)
 	Event,
-	// PropertyMap table (15h)
+	/// PropertyMap table (15h)
 	PropertyMap,
-	// PropertyPtr table (16h)
+	/// PropertyPtr table (16h)
 	PropertyPtr,
-	// Property table (17h)
+	/// Property table (17h)
 	Property,
-	// MethodSemantics table (18h)
+	/// MethodSemantics table (18h)
 	MethodSemantics,
-	// MethodImpl table (19h)
+	/// MethodImpl table (19h)
 	MethodImpl,
-	// ModuleRef table (1Ah)
+	/// ModuleRef table (1Ah)
 	ModuleRef,
-	// TypeSpec table (1Bh)
+	/// TypeSpec table (1Bh)
 	TypeSpec,
-	// ImplMap table (1Ch)
+	/// ImplMap table (1Ch)
 	ImplMap,
-	// FieldRVA table (1Dh)
+	/// FieldRVA table (1Dh)
 	FieldRVA,
-	// ENCLog table (1Eh)
+	/// ENCLog table (1Eh)
 	ENCLog,
-	// ENCMap table (1Fh)
+	/// ENCMap table (1Fh)
 	ENCMap,
-	// Assembly table (20h)
+	/// Assembly table (20h)
 	Assembly,
-	// AssemblyProcessor table (21h)
+	/// AssemblyProcessor table (21h)
 	AssemblyProcessor,
-	// AssemblyOS table (22h)
+	/// AssemblyOS table (22h)
 	AssemblyOS,
-	// AssemblyRef table (23h)
+	/// AssemblyRef table (23h)
 	AssemblyRef,
-	// AssemblyRefProcessor table (24h)
+	/// AssemblyRefProcessor table (24h)
 	AssemblyRefProcessor,
-	// AssemblyRefOS table (25h)
+	/// AssemblyRefOS table (25h)
 	AssemblyRefOS,
-	// File table (26h)
+	/// File table (26h)
 	File,
-	// ExportedType table (27h)
+	/// ExportedType table (27h)
 	ExportedType,
-	// ManifestResource table (28h)
+	/// ManifestResource table (28h)
 	ManifestResource,
-	// NestedClass table (29h)
+	/// NestedClass table (29h)
 	NestedClass,
-	// GenericParam table (2Ah)
+	/// GenericParam table (2Ah)
 	GenericParam,
-	// MethodSpec table (2Bh)
+	/// MethodSpec table (2Bh)
 	MethodSpec,
-	// GenericParamConstraint table (2Ch)
+	/// GenericParamConstraint table (2Ch)
 	GenericParamConstraint,
-    // Reserved
+    /// Reserved
     X2D,
     X2E,
     X2F,
-	// (Portable PDB) Document table (30h)
+	/// (Portable PDB) Document table (30h)
 	Document,
-	// (Portable PDB) MethodDebugInformation table (31h)
+	/// (Portable PDB) MethodDebugInformation table (31h)
 	MethodDebugInformation,
-	// (Portable PDB) LocalScope table (32h)
+	/// (Portable PDB) LocalScope table (32h)
 	LocalScope,
-	// (Portable PDB) LocalVariable table (33h)
+	/// (Portable PDB) LocalVariable table (33h)
 	LocalVariable,
-	// (Portable PDB) LocalConstant table (34h)
+	/// (Portable PDB) LocalConstant table (34h)
 	LocalConstant,
-	// (Portable PDB) ImportScope table (35h)
+	/// (Portable PDB) ImportScope table (35h)
 	ImportScope,
-	// (Portable PDB) StateMachineMethod table (36h)
+	/// (Portable PDB) StateMachineMethod table (36h)
 	StateMachineMethod,
-	// (Portable PDB) CustomDebugInformation table (37h)
+	/// (Portable PDB) CustomDebugInformation table (37h)
 	CustomDebugInformation,
-}
-
-impl MDTableType {
-    pub fn is_sys_table(&self) -> bool {
-        (*self as u8) < (MDTableType::Document as u8)
-    }
 }
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MDColumnType {
-    	// RID into Module table
+    	/// RID into Module table
 		Module,
-		// RID into TypeRef table
+		/// RID into TypeRef table
 		TypeRef,
-		// RID into TypeDef table
+		/// RID into TypeDef table
 		TypeDef,
-		// RID into FieldPtr table
+		/// RID into FieldPtr table
 		FieldPtr,
-		// RID into Field table
+		/// RID into Field table
 		Field,
-		// RID into MethodPtr table
+		/// RID into MethodPtr table
 		MethodPtr,
-		// RID into Method table
+		/// RID into Method table
 		Method,
-		// RID into ParamPtr table
+		/// RID into ParamPtr table
 		ParamPtr,
-		// RID into Param table
+		/// RID into Param table
 		Param,
-		// RID into InterfaceImpl table
+		/// RID into InterfaceImpl table
 		InterfaceImpl,
-		// RID into MemberRef table
+		/// RID into MemberRef table
 		MemberRef,
-		// RID into Constant table
+		/// RID into Constant table
 		Constant,
-		// RID into CustomAttribute table
+		/// RID into CustomAttribute table
 		CustomAttribute,
-		// RID into FieldMarshal table
+		/// RID into FieldMarshal table
 		FieldMarshal,
-		// RID into DeclSecurity table
+		/// RID into DeclSecurity table
 		DeclSecurity,
-		// RID into ClassLayout table
+		/// RID into ClassLayout table
 		ClassLayout,
-		// RID into FieldLayout table
+		/// RID into FieldLayout table
 		FieldLayout,
-		// RID into StandAloneSig table
+		/// RID into StandAloneSig table
 		StandAloneSig,
-		// RID into EventMap table
+		/// RID into EventMap table
 		EventMap,
-		// RID into EventPtr table
+		/// RID into EventPtr table
 		EventPtr,
-		// RID into Event table
+		/// RID into Event table
 		Event,
-		// RID into PropertyMap table
+		/// RID into PropertyMap table
 		PropertyMap,
-		// RID into PropertyPtr table
+		/// RID into PropertyPtr table
 		PropertyPtr,
-		// RID into Property table
+		/// RID into Property table
 		Property,
-		// RID into MethodSemantics table
+		/// RID into MethodSemantics table
 		MethodSemantics,
-		// RID into MethodImpl table
+		/// RID into MethodImpl table
 		MethodImpl,
-		// RID into ModuleRef table
+		/// RID into ModuleRef table
 		ModuleRef,
-		// RID into TypeSpec table
+		/// RID into TypeSpec table
 		TypeSpec,
-		// RID into ImplMap table
+		/// RID into ImplMap table
 		ImplMap,
-		// RID into FieldRVA table
+		/// RID into FieldRVA table
 		FieldRVA,
-		// RID into ENCLog table
+		/// RID into ENCLog table
 		ENCLog,
-		// RID into ENCMap table
+		/// RID into ENCMap table
 		ENCMap,
-		// RID into Assembly table
+		/// RID into Assembly table
 		Assembly,
-		// RID into AssemblyProcessor table
+		/// RID into AssemblyProcessor table
 		AssemblyProcessor,
-		// RID into AssemblyOS table
+		/// RID into AssemblyOS table
 		AssemblyOS,
-		// RID into AssemblyRef table
+		/// RID into AssemblyRef table
 		AssemblyRef,
-		// RID into AssemblyRefProcessor table
+		/// RID into AssemblyRefProcessor table
 		AssemblyRefProcessor,
-		// RID into AssemblyRefOS table
+		/// RID into AssemblyRefOS table
 		AssemblyRefOS,
-		// RID into File table
+		/// RID into File table
 		File,
-		// RID into ExportedType table
+		/// RID into ExportedType table
 		ExportedType,
-		// RID into ManifestResource table
+		/// RID into ManifestResource table
 		ManifestResource,
-		// RID into NestedClass table
+		/// RID into NestedClass table
 		NestedClass,
-		// RID into GenericParam table
+		/// RID into GenericParam table
 		GenericParam,
-		// RID into MethodSpec table
+		/// RID into MethodSpec table
 		MethodSpec,
-		// RID into GenericParamConstraint table
+		/// RID into GenericParamConstraint table
 		GenericParamConstraint,
-		// RID into Document table
+		/// RID into Document table
 		Document = 0x30,
-		// RID into MethodDebugInformation table
+		/// RID into MethodDebugInformation table
 		MethodDebugInformation,
-		// RID into LocalScope table
+		/// RID into LocalScope table
 		LocalScope,
-		// RID into LocalVariable table
+		/// RID into LocalVariable table
 		LocalVariable,
-		// RID into LocalConstant table
+		/// RID into LocalConstant table
 		LocalConstant,
-		// RID into ImportScope table
+		/// RID into ImportScope table
 		ImportScope,
-		// RID into StateMachineMethod table
+		/// RID into StateMachineMethod table
 		StateMachineMethod,
-		// RID into CustomDebugInformation table
+		/// RID into CustomDebugInformation table
 		CustomDebugInformation,
-		// 8-bit byte
+		/// 8-bit byte
 		Byte = 0x40,
-		// 16-bit signed int
+		/// 16-bit signed int
 		Int16,
-		// 16-bit unsigned int
+		/// 16-bit unsigned int
 		UInt16,
-		// 32-bit signed int
+		/// 32-bit signed int
 		Int32,
-		// 32-bit unsigned int
+		/// 32-bit unsigned int
 		UInt32,
-		// Index into #Strings stream
+		/// Index into #Strings stream
 		Strings,
-		// Index into #GUID stream
+		/// Index into #GUID stream
 		GUID,
-		// Index into #Blob stream
+		/// Index into #Blob stream
 		Blob,
-		// TypeDefOrRef encoded token
+		/// TypeDefOrRef encoded token
 		TypeDefOrRef,
-		// HasConstant encoded token
+		/// HasConstant encoded token
 		HasConstant,
-		// HasCustomAttribute encoded token
+		/// HasCustomAttribute encoded token
 		HasCustomAttribute,
-		// HasFieldMarshal encoded token
+		/// HasFieldMarshal encoded token
 		HasFieldMarshal,
-		// HasDeclSecurity encoded token
+		/// HasDeclSecurity encoded token
 		HasDeclSecurity,
-		// MemberRefParent encoded token
+		/// MemberRefParent encoded token
 		MemberRefParent,
-		// HasSemantic encoded token
+		/// HasSemantic encoded token
 		HasSemantic,
-		// MethodDefOrRef encoded token
+		/// MethodDefOrRef encoded token
 		MethodDefOrRef,
-		// MemberForwarded encoded token
+		/// MemberForwarded encoded token
 		MemberForwarded,
-		// Implementation encoded token
+		/// Implementation encoded token
 		Implementation,
-		// CustomAttributeType encoded token
+		/// CustomAttributeType encoded token
 		CustomAttributeType,
-		// ResolutionScope encoded token
+		/// ResolutionScope encoded token
 		ResolutionScope,
-		// TypeOrMethodDef encoded token
+		/// TypeOrMethodDef encoded token
 		TypeOrMethodDef,
-		// HasCustomDebugInformation encoded token
+		/// HasCustomDebugInformation encoded token
 		HasCustomDebugInformation,
 }
 
 pub struct MDColumn {
     pub name: &'static str,
-    pub column_type: MDColumnType,  // 列的类型
-    pub size: u8,                   // 列数据类型的字节大小
-    pub offset: u32,                // 在该行中的偏移量
-    pub index: u8,                  // 索引
-    pub data: Vec<u8>,              // 列数据，用u8存储，读取时根据size来转换
+    /// 列的类型
+    pub column_type: MDColumnType,
+    /// 列数据类型的字节大小
+    pub size: u8,
+    /// 在该行中的偏移量
+    pub offset: u32,
+    /// 索引
+    pub index: u8,
+    /// 列数据，用u8存储，读取时根据size来转换
+    pub data: Vec<u8>,
 }
 
 impl MDColumn {
@@ -354,10 +353,13 @@ impl MDColumn {
 pub struct MDTable {
     pub table_type: MDTableType,
     pub name: &'static str,
-    pub row_count: u32,             // 表格一共有几行
-    pub row_size: u32,              // 表格一行的字节大小
+    /// 表格一共有几行
+    pub row_count: u32,
+    /// 表格一行的字节大小
+    pub row_size: u32,
     pub columns: Vec<MDColumn>,
-    pub position: usize,            // 在文件中的真实位置
+    /// 在文件中的真实位置
+    pub position: usize,
 }
 
 impl MDTable {
@@ -372,7 +374,7 @@ impl MDTable {
         }
     }
 
-    pub fn read_all(&mut self, reader: &mut ImageReader) -> io::Result<()> {
+    pub fn read_all(&mut self, reader: &mut DataReader) -> io::Result<()> {
         if self.position == 0 {
             return Ok(())
         }
@@ -427,7 +429,7 @@ impl fmt::Debug for MDTable {
 
 use std::io;
 use bitflags::bitflags;
-use crate::interpreter::image_reader::ImageReader;
+use crate::interpreter::data_reader::DataReader;
 use crate::interpreter::metadata::md_token::CodedToken;
 
 bitflags! {
@@ -464,7 +466,7 @@ pub struct TableStream {
 }
 
 impl TableStream {
-    pub fn new(reader: &mut ImageReader) -> io::Result<TableStream> {
+    pub fn new(reader: &mut DataReader) -> io::Result<TableStream> {
         let reserved1 = reader.read_u32()?;
         let major_version = reader.read_u8()?;
         let minor_version = reader.read_u8()?;
@@ -526,7 +528,7 @@ impl TableStream {
             md_table.read_all(reader)?;
         }
 
-        // println!("{:?}", md_tables[6]);  // 输出Method和Param
+        // println!("{:?}", md_tables[6]);  /// 输出Method和Param
         // println!("{:?}", md_tables[8]);
 
         Ok(TableStream {

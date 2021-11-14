@@ -3,37 +3,37 @@ use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use bitflags::bitflags;
 
-use super::metadata::md_token::*;
+use super::{data_reader::DataReader, metadata::md_token::*};
 use crate::interpreter::metadata::table_stream::{MDColumnType, MDTableType};
-use super::metadata::{CompressedStream, Metadata};
+use super::metadata::Metadata;
 
 bitflags! {
     pub struct CallingConvention: u8 {
-        const Default = 0x0;
+        const DEFAULT = 0x0;
 		const C = 0x1;
-		const StdCall = 0x2;
-		const ThisCall = 0x3;
-		const FastCall = 0x4;
-		const VarArg = 0x5;
-		const Field = 0x6;
-		const LocalSig = 0x7;
-		const Property = 0x8;
-		// Unmanaged calling convention encoded as modopts
-		const Unmanaged = 0x9;
-		// generic method instantiation
-		const GenericInst = 0xA;
-		// used ONLY for 64bit vararg PInvoke calls
-		const NativeVarArg = 0xB;
-		// Calling convention is bottom 4 bits
-		const Mask = 0x0F;
-		// Generic method
-		const Generic = 0x10;
-		// Method needs a 'this' parameter
-		const HasThis = 0x20;
-		// 'this' parameter is the first arg if set (else it's hidden)
-		const ExplicitThis = 0x40;
-		// Used internally by the CLR
-		const ReservedByCLR = 0x80;
+		const STD_CALL = 0x2;
+		const THIS_CALL = 0x3;
+		const FAST_CALL = 0x4;
+		const VAR_ARG = 0x5;
+		const FIELD = 0x6;
+		const LOCAL_SIG = 0x7;
+		const PROPERTY = 0x8;
+		/// Unmanaged calling convention encoded as modopts
+		const UNMANAGED = 0x9;
+		/// generic method instantiation
+		const GENERIC_INST = 0xA;
+		/// used ONLY for 64bit vararg PInvoke calls
+		const NATIVE_VAR_ARG = 0xB;
+		/// Calling convention is bottom 4 bits
+		const MASK = 0x0F;
+		/// Generic method
+		const GENERIC = 0x10;
+		/// Method needs a 'this' parameter
+		const HAS_THIS = 0x20;
+		/// 'this' parameter is the first arg if set (else it's hidden)
+		const EXPLICIT_THIS = 0x40;
+		/// Used internally by the CLR
+		const RESERVED_BY_CLR = 0x80;
     }
 }
 
@@ -126,70 +126,70 @@ pub enum CallingConventionSig {
 impl CallingConventionSig {
     pub fn read_metadata_sig(metadata: &Metadata, signature: u32) -> Option<CallingConventionSig> {
         let data = metadata.blob_stream.read(signature).unwrap();
-        let stream = CompressedStream::from_data(data);
+        let reader = DataReader::new(data);
         let mut offset = 0;
-        Self::read_sig(&stream, &mut offset)
+        Self::read_sig(&reader, &mut offset)
     }
 
-    pub fn read_sig(stream: &CompressedStream, offset: &mut usize) -> Option<CallingConventionSig> {
-        let calling_convention = CallingConvention::from_bits_truncate(stream.read_u8(offset).unwrap());
-        match calling_convention.intersection(CallingConvention::Mask) {
-            CallingConvention::Default | 
+    pub fn read_sig(reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
+        let calling_convention = CallingConvention::from_bits_truncate(reader.read_u8_immut(offset).unwrap());
+        match calling_convention.intersection(CallingConvention::MASK) {
+            CallingConvention::DEFAULT | 
             CallingConvention::C |
-            CallingConvention::StdCall |
-            CallingConvention::ThisCall |
-            CallingConvention::FastCall |
-            CallingConvention::VarArg |
-            CallingConvention::NativeVarArg |
-            CallingConvention::Unmanaged => {
-                Self::read_method(calling_convention, &stream)
+            CallingConvention::STD_CALL |
+            CallingConvention::THIS_CALL |
+            CallingConvention::FAST_CALL |
+            CallingConvention::VAR_ARG |
+            CallingConvention::NATIVE_VAR_ARG |
+            CallingConvention::UNMANAGED => {
+                Self::read_method(calling_convention, &reader)
             },
-            CallingConvention::Field => {
-                Self::read_field(calling_convention, &stream)
+            CallingConvention::FIELD => {
+                Self::read_field(calling_convention, &reader)
             },
-            CallingConvention::Property => {
-                Self::read_property(calling_convention, &stream)
+            CallingConvention::PROPERTY => {
+                Self::read_property(calling_convention, &reader)
             },
-            CallingConvention::LocalSig => {
+            CallingConvention::LOCAL_SIG => {
                 todo!();
-                // Self::read_local_sig(calling_convention, &stream)
+                // Self::read_local_sig(calling_convention, &reader)
             },
             _=> None
         }
     }
 
-    fn read_method(calling_convention: CallingConvention, stream: &CompressedStream) -> Option<CallingConventionSig> {
-        Self::read_sig_internal(MethodSig::new(calling_convention), stream)
+    fn read_method(calling_convention: CallingConvention, reader: &DataReader) -> Option<CallingConventionSig> {
+        Self::read_sig_internal(MethodSig::new(calling_convention), reader)
     }
 
-    fn read_field(calling_convention: CallingConvention, stream: &CompressedStream) -> Option<CallingConventionSig> {
+    fn read_field(calling_convention: CallingConvention, reader: &DataReader) -> Option<CallingConventionSig> {
         let mut offset = 0;
-        Some(CallingConventionSig::FieldSig(FieldSig::new(calling_convention, TypeSig::read_type(stream, &mut offset))))
+        Some(CallingConventionSig::FieldSig(FieldSig::new(calling_convention, TypeSig::read_type(reader, &mut offset))))
     }
 
-    fn read_property(calling_convention: CallingConvention, stream: &CompressedStream) -> Option<CallingConventionSig> {
-        match Self::read_sig_internal(MethodSig::new(calling_convention), stream) {
+    fn read_property(calling_convention: CallingConvention, reader: &DataReader) -> Option<CallingConventionSig> {
+        match Self::read_sig_internal(MethodSig::new(calling_convention), reader) {
             Some(CallingConventionSig::MethodSig(method_sig)) => Some(CallingConventionSig::PropertySig(method_sig)),
             _ => None
         }
     }
 
-    fn read_sig_internal(method_sig: MethodSig, stream: &CompressedStream) -> Option<CallingConventionSig> {
+    fn read_sig_internal(method_sig: MethodSig, reader: &DataReader) -> Option<CallingConventionSig> {
         let mut offset = 1;
         let mut method_sig = method_sig;
         if method_sig.base.base.get_generic() {
-            match stream.try_read_compressed_u32(&mut offset) {
+            match reader.try_read_compressed_u32_immut(&mut offset) {
                 Ok(count) => {
                     method_sig.base.gen_param_count = count;
                 },
                 _ => return None,
             }
         }
-        match stream.try_read_compressed_u32(&mut offset) {
+        match reader.try_read_compressed_u32_immut(&mut offset) {
             Ok(param_count) => {
-                method_sig.base.ret_type = TypeSig::read_type(stream, &mut offset);
+                method_sig.base.ret_type = TypeSig::read_type(reader, &mut offset);
                 for _ in 0..param_count {
-                    match TypeSig::read_type(stream, &mut offset) {
+                    match TypeSig::read_type(reader, &mut offset) {
                         // TypeSig::SentinelSig(_) => {
                         //     if method_sig.base.params_after_sentinel
                         // },
@@ -212,7 +212,7 @@ pub struct CallingConventionSigBase {
 impl Default for CallingConventionSigBase {
     fn default() -> CallingConventionSigBase {
         CallingConventionSigBase {
-            calling_convention: CallingConvention::Default,
+            calling_convention: CallingConvention::DEFAULT,
             extra_data: Vec::new(),
         }
     }
@@ -227,42 +227,42 @@ impl CallingConventionSigBase {
     }
 
     pub fn get_is_default(&self) -> bool {
-        self.calling_convention.intersection(CallingConvention::Mask) == CallingConvention::Default
+        self.calling_convention.intersection(CallingConvention::MASK) == CallingConvention::DEFAULT
     }
 
     pub fn get_generic(&self) -> bool {
-        self.calling_convention.contains(CallingConvention::Generic)
+        self.calling_convention.contains(CallingConvention::GENERIC)
     }
 
     pub fn set_generic(&mut self, value: bool) {
         if value {
-            self.calling_convention.insert(CallingConvention::Generic);
+            self.calling_convention.insert(CallingConvention::GENERIC);
         } else {
-            self.calling_convention.remove(CallingConvention::Generic);
+            self.calling_convention.remove(CallingConvention::GENERIC);
         }
     }
 
     pub fn get_has_this(&self) -> bool {
-        self.calling_convention.contains(CallingConvention::HasThis)
+        self.calling_convention.contains(CallingConvention::HAS_THIS)
     }
 
     pub fn set_has_this(&mut self, value: bool) {
         if value {
-            self.calling_convention.insert(CallingConvention::HasThis);
+            self.calling_convention.insert(CallingConvention::HAS_THIS);
         } else {
-            self.calling_convention.remove(CallingConvention::HasThis);
+            self.calling_convention.remove(CallingConvention::HAS_THIS);
         }
     }
 
     pub fn get_explicit_this(&self) -> bool {
-        self.calling_convention.contains(CallingConvention::ExplicitThis)
+        self.calling_convention.contains(CallingConvention::EXPLICIT_THIS)
     }
 
     pub fn set_explicit_this(&mut self, value: bool) {
         if value {
-            self.calling_convention.insert(CallingConvention::ExplicitThis);
+            self.calling_convention.insert(CallingConvention::EXPLICIT_THIS);
         } else {
-            self.calling_convention.remove(CallingConvention::ExplicitThis);
+            self.calling_convention.remove(CallingConvention::EXPLICIT_THIS);
         }
     }
 }
@@ -288,12 +288,12 @@ pub enum TypeSig {
 }
 
 impl TypeSig {
-    pub fn read_type(stream: &CompressedStream, offset: &mut usize) -> Option<TypeSig> {
+    pub fn read_type(reader: &DataReader, offset: &mut usize) -> Option<TypeSig> {
         // let mut num;
         // let mut i;
         // let mut next_type;
         // let mut result = None;
-        match stream.read_u8(offset) {
+        match reader.read_u8_immut(offset) {
             Ok(val) => {
                 match FromPrimitive::from_u8(val) {
                     Some(ElementType::Void) => Some(TypeSig::CorLibType(CorLibType::Void)),
@@ -315,16 +315,16 @@ impl TypeSig {
                     Some(ElementType::U) => Some(TypeSig::CorLibType(CorLibType::UIntPtr)),
                     Some(ElementType::Object) => Some(TypeSig::CorLibType(CorLibType::Object)),
 
-                    Some(ElementType::Ptr) => Some(TypeSig::PtrSig(NoLeafSig::new(Self::read_type(stream, offset)?))),
-                    Some(ElementType::ByRef) => Some(TypeSig::ByRefSig(NoLeafSig::new(Self::read_type(stream, offset)?))),
-                    Some(ElementType::ValueType) => Some(TypeSig::ValueTypeSig(Self::read_type_def_or_ref(false, stream, offset))),
-                    Some(ElementType::Class) => Some(TypeSig::ClassSig(Self::read_type_def_or_ref(false, stream, offset))),
-                    Some(ElementType::FnPtr) => Some(TypeSig::FnPtrSig(FnPtrSig::new(CallingConventionSig::read_sig(stream, offset)))),
-                    Some(ElementType::SZArray) => Some(TypeSig::SZArraySig(ArraySigBase::new(Self::read_type(stream, offset)?))),
-                    Some(ElementType::CModReqd) => Some(TypeSig::CModReqdSig(NoLeafSig::new(Self::read_type(stream, offset)?))),
-                    Some(ElementType::CModOpt) => Some(TypeSig::CModOptSig(NoLeafSig::new(Self::read_type(stream, offset)?))),
+                    Some(ElementType::Ptr) => Some(TypeSig::PtrSig(NoLeafSig::new(Self::read_type(reader, offset)?))),
+                    Some(ElementType::ByRef) => Some(TypeSig::ByRefSig(NoLeafSig::new(Self::read_type(reader, offset)?))),
+                    Some(ElementType::ValueType) => Some(TypeSig::ValueTypeSig(Self::read_type_def_or_ref(false, reader, offset))),
+                    Some(ElementType::Class) => Some(TypeSig::ClassSig(Self::read_type_def_or_ref(false, reader, offset))),
+                    Some(ElementType::FnPtr) => Some(TypeSig::FnPtrSig(FnPtrSig::new(CallingConventionSig::read_sig(reader, offset)))),
+                    Some(ElementType::SZArray) => Some(TypeSig::SZArraySig(ArraySigBase::new(Self::read_type(reader, offset)?))),
+                    Some(ElementType::CModReqd) => Some(TypeSig::CModReqdSig(NoLeafSig::new(Self::read_type(reader, offset)?))),
+                    Some(ElementType::CModOpt) => Some(TypeSig::CModOptSig(NoLeafSig::new(Self::read_type(reader, offset)?))),
                     Some(ElementType::Sentinel) => Some(TypeSig::SentinelSig(LeafSig::default())),
-                    Some(ElementType::Pinned) => Some(TypeSig::PinnedSig(NoLeafSig::new(Self::read_type(stream, offset)?))),
+                    Some(ElementType::Pinned) => Some(TypeSig::PinnedSig(NoLeafSig::new(Self::read_type(reader, offset)?))),
                 
                     Some(ElementType::Var) => {
                         todo!();
@@ -339,7 +339,7 @@ impl TypeSig {
                         todo!();
                     },
                     Some(ElementType::Internal) => {
-                        let address = stream.read_u64(offset).unwrap();
+                        let address = reader.read_u64_immut(offset).unwrap();
                         println!("address: {}", address);
                         None
                     },
@@ -351,8 +351,8 @@ impl TypeSig {
         }
     }
 
-    fn read_type_def_or_ref(allow_type_spec: bool, stream: &CompressedStream, offset: &mut usize) -> Option<TypeDefOrRefSig> {
-        match stream.try_read_compressed_u32(offset) {
+    fn read_type_def_or_ref(allow_type_spec: bool, reader: &DataReader, offset: &mut usize) -> Option<TypeDefOrRefSig> {
+        match reader.try_read_compressed_u32_immut(offset) {
             Err(_) => None,
             Ok(coded_token) => {
                 match CodedToken::from_column_size(MDColumnType::TypeDefOrRef).decode_as_md_table_type(coded_token) {

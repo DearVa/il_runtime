@@ -1,5 +1,5 @@
 use std::io;
-use super::super::ImageReader;
+use super::super::DataReader;
 
 #[derive(Debug, Copy, Clone)]
 pub struct ImageSectionHeader {
@@ -16,7 +16,7 @@ pub struct ImageSectionHeader {
 }
 
 impl ImageSectionHeader {
-    pub fn new(reader: &mut ImageReader) -> io::Result<ImageSectionHeader> {
+    pub fn new(reader: &mut DataReader) -> io::Result<ImageSectionHeader> {
         let mut name = [0u8; 8];
         reader.read_bytes(&mut name)?;
         Ok(ImageSectionHeader {

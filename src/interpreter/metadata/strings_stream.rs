@@ -1,6 +1,6 @@
 use std::io;
 use std::collections::HashMap;
-use crate::interpreter::image_reader::ImageReader;
+use crate::interpreter::data_reader::DataReader;
 
 #[derive(Default)]
 pub struct StringsStream {
@@ -9,7 +9,7 @@ pub struct StringsStream {
 }
 
 impl StringsStream {
-    pub fn new(reader: &mut ImageReader, size: u32) -> io::Result<StringsStream> {
+    pub fn new(reader: &mut DataReader, size: u32) -> io::Result<StringsStream> {
         let mut strings = HashMap::new();
         let start_pos = reader.get_position();
         loop {

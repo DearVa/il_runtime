@@ -2,7 +2,7 @@ use std::{fmt::{self, Debug, Formatter}, io};
 
 use crate::interpreter::CallingConventionSig;
 
-use super::{image_reader::ImageReader, metadata::*, RidList};
+use super::{data_reader::DataReader, metadata::*, RidList};
 
 pub struct Method {
     pub token: u32,                 // 形如0x06000001
@@ -25,7 +25,7 @@ pub struct Method {
 }
 
 impl Method {
-    pub fn read_methods(pe: &PE, metadata: &Metadata, method_to_type_map: Vec<u32>, reader: &mut ImageReader) -> io::Result<Vec<Method>> {
+    pub fn read_methods(pe: &PE, metadata: &Metadata, method_to_type_map: Vec<u32>, reader: &mut DataReader) -> io::Result<Vec<Method>> {
         let mut methods = Vec::new();
         let method_table = &metadata.table_stream.md_tables[6];
         let mut type_map_index = 0;

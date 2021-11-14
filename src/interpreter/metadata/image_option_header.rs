@@ -1,5 +1,5 @@
 use std::io;
-use super::super::ImageReader;
+use super::super::DataReader;
 use crate::interpreter::metadata::image_data_directory::ImageDataDirectory;
 
 const DATA_DIR_COUNT: usize = 16;
@@ -41,7 +41,7 @@ pub struct ImageOptionHeader {
 }
 
 impl ImageOptionHeader {
-    pub fn new(reader: &mut ImageReader, total_size: u32) -> Result<ImageOptionHeader, io::Error> {
+    pub fn new(reader: &mut DataReader, total_size: u32) -> Result<ImageOptionHeader, io::Error> {
         let start_offset = reader.get_position();
         let magic = reader.read_u16()?;
         let is64 = match magic {

@@ -11,15 +11,13 @@ pub mod table_stream;
 use table_stream::*;
 mod strings_stream;
 use strings_stream::*;
-mod compressed_stream;
-pub use compressed_stream::*;
 mod us_stream;
 use us_stream::*;
 mod blob_stream;
 use blob_stream::*;
 pub mod md_token;
 use md_token::*;
-use super::ImageReader;
+use super::DataReader;
 
 use std::io;
 
@@ -38,7 +36,7 @@ pub struct PE {
 }
 
 impl PE {
-    pub fn new(reader: &mut ImageReader) -> io::Result<PE> {
+    pub fn new(reader: &mut DataReader) -> io::Result<PE> {
         // 读DOS头
         let pe_sig = reader.read_u16()?;
         if pe_sig != 0x5A4D {
@@ -67,7 +65,7 @@ impl PE {
         // 读optional_header
         let image_option_header = ImageOptionHeader::new(reader, size_of_optional_header as u32)?;
         
-        // 读secions
+        // 读sections
         reader.set_position(image_option_header.start_offset + size_of_optional_header as usize)?;
         if num_of_sections > 0 {
             let position = reader.get_position();
@@ -164,8 +162,8 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    // 读取Assembly的元数据
-    pub fn new(pe: &PE, reader: &mut ImageReader) -> io::Result<Metadata> {
+    /// 读取Assembly的元数据
+    pub fn new(pe: &PE, reader: &mut DataReader) -> io::Result<Metadata> {
         let dot_net_dir = pe.image_option_header.data_directories.get(14).unwrap();
         if dot_net_dir.virtual_address == 0 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid .NET data directory RVA"));
@@ -203,14 +201,14 @@ impl Metadata {
                         "#US" => {
                             if !us_stream_loaded {
                                 reader.set_position(metadata_base_offset + sh.offset as usize)?;
-                                us_stream = USStream::new(reader, sh.size)?;
+                                us_stream = USStream::new(reader, sh.size as usize)?;
                                 us_stream_loaded = true;
                             }
                         },
                         "#Blob" => {
                             if !blob_stream_loaded {
                                 reader.set_position(metadata_base_offset + sh.offset as usize)?;
-                                blob_stream = BlobStream::new(reader, sh.size)?;
+                                blob_stream = BlobStream::new(reader, sh.size as usize)?;
                                 blob_stream_loaded = true;
                             }
                         },
@@ -308,7 +306,7 @@ impl Metadata {
         if (signature >> 24) != 0x70 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid US signature"));
         }
-        self.us_stream.read(signature & 0x00FFFFFF)
+        self.us_stream.read((signature & 0x00FFFFFF) as usize)
     }
 
     pub fn resolve_member_ref(&self, coded_token: u32) -> Option<u32> {

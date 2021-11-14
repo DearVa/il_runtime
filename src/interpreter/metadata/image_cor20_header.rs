@@ -1,5 +1,5 @@
 use std::io;
-use crate::interpreter::image_reader::ImageReader;
+use crate::interpreter::data_reader::DataReader;
 use super::image_data_directory::ImageDataDirectory;
 
 pub struct ImageCor20Header {
@@ -18,7 +18,7 @@ pub struct ImageCor20Header {
 }
 
 impl ImageCor20Header {
-    pub fn new(reader: &mut ImageReader) -> io::Result<ImageCor20Header> {
+    pub fn new(reader: &mut DataReader) -> io::Result<ImageCor20Header> {
         let cb = reader.read_u32()?;
         if cb < 0x48 {
             return Err(io::Error::new(io::ErrorKind::InvalidData,"Invalid IMAGE_COR20_HEADER.cb"));

@@ -1,5 +1,5 @@
 use std::io;
-use crate::interpreter::image_reader::ImageReader;
+use crate::interpreter::data_reader::DataReader;
 
 pub struct StreamHeader {
     pub offset: u32,
@@ -8,7 +8,7 @@ pub struct StreamHeader {
 }
 
 impl StreamHeader {
-    pub fn new(reader: &mut ImageReader) -> io::Result<StreamHeader> {
+    pub fn new(reader: &mut DataReader) -> io::Result<StreamHeader> {
         let offset = reader.read_u32()?;
         let size = reader.read_u32()?;
 
@@ -51,7 +51,7 @@ pub struct MetadataHeader {
 }
 
 impl MetadataHeader {
-    pub fn new(reader: &mut ImageReader) -> io::Result<MetadataHeader> {
+    pub fn new(reader: &mut DataReader) -> io::Result<MetadataHeader> {
         let signature = reader.read_u32()?;
         if signature != 0x424A5342 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid metadata header signature"));

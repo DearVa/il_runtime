@@ -20,17 +20,6 @@ pub struct AssemblyName {
     pub name: String,
 }
 
-impl AssemblyName {
-    fn all_zero(vec: &Vec<u8>) -> bool {
-        for i in vec.iter() {
-            if *i != 0 {
-                return false;
-            }
-        }
-        true
-    }
-}
-
 impl Clone for AssemblyName {
     fn clone(&self) -> Self {
         AssemblyName {

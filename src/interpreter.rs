@@ -1,17 +1,17 @@
+use std::rc::Rc;
 use std::{io, ptr};
 use std::fs::File;
 use std::io::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use num_traits::FromPrimitive;
-use std::convert::TryInto;
 use colored::*;
 
 mod op_codes;
 use op_codes::*;
 mod il_type;
 use il_type::*;
-mod image_reader;
-use image_reader::*;
+mod data_reader;
+use data_reader::*;
 mod metadata;
 use metadata::*;
 mod signature;
@@ -37,7 +37,7 @@ pub struct Assembly {
     pub assembly_path: String,
     pub assembly_name: AssemblyName,
 
-    pub image: Vec<u8>,    // 映像，一次性读取
+    pub reader: DataReader,
     pub pe: PE,
     pub metadata: Metadata,
 
@@ -55,7 +55,7 @@ impl Assembly {
         let metadata = file.metadata().expect("unable to read metadata");
         let mut image = vec![0; metadata.len() as usize];
         file.read(&mut image).expect("Error reading assembly, overflow.");
-        let mut reader = ImageReader::new(&image);
+        let mut reader = DataReader::new(image);
         let pe = PE::new(&mut reader)?;
         let metadata = Metadata::new(&pe, &mut reader)?;
 
@@ -101,7 +101,7 @@ impl Assembly {
                 name,
             },
 
-            image,
+            reader,
             pe,
             metadata,
 
@@ -125,12 +125,28 @@ impl Assembly {
     }
 }
 
-pub struct Interpreter {
-    assemblies: Vec<Assembly>,              // index0放入口Assembly，加载的外部Assembly依次往后放
-    assembly_map: HashMap<String, usize>,   // 根据AssemblyName定位Assemblies的index
-    call_stack: Vec<(usize, u32)>,          // 调用堆栈，记录当前assembly的index和method_token
+/// 解释器执行的上下文
+pub struct Context {
+    assembly: Rc<Assembly>,
+    /// 调用堆栈，记录当前assembly和method_token
+    call_stack: Vec<(Rc<Assembly>, u32)>,
+}
 
-    assembly_index: usize,
+impl Context {
+    pub fn new(assembly: &Rc<Assembly>) -> Context {
+        Context {
+            assembly: Rc::clone(assembly),
+            call_stack: Vec::new(),
+        }
+    }
+}
+
+pub struct Interpreter {
+    /// index0放入口Assembly，加载的外部Assembly依次往后放
+    assemblies: Vec<Rc<Assembly>>,
+    /// 根据AssemblyName定位Assemblies的index
+    assembly_map: HashMap<String, usize>,
+
     stack: VecDeque<ILType>,
     objects: Vec<Object>,
     strings: Vec<String>,
@@ -145,14 +161,11 @@ impl Interpreter {
         for method in assembly.methods.iter() {
             println!("{:?}", method);
         }
-        assemblies.push(assembly);
+        assemblies.push(Rc::new(assembly));
 
         Ok(Interpreter {
             assemblies,
             assembly_map: HashMap::new(),
-            call_stack: Vec::new(),
-
-            assembly_index: 0,
             stack: VecDeque::new(),
             objects: Vec::new(),
             strings: Vec::new(),
@@ -161,14 +174,15 @@ impl Interpreter {
 
     pub fn run(&mut self) {
         println!("\nstart run:\n");
-        self.il_call(0x06000001);
+        self.il_call(&mut Context::new(&self.assemblies[0]), 0x06000001);
     }
 
-    fn load_assembly(&mut self, assembly_name: &AssemblyName) -> usize {
-        self.assemblies.push(Assembly::load(assembly_name).unwrap());
+    fn load_assembly(&mut self, assembly_name: &AssemblyName) -> Rc<Assembly> {
+        let assembly = Rc::new(Assembly::load(assembly_name).unwrap());
+        self.assemblies.push(assembly.clone());
         let index = self.assemblies.len() - 1;
         self.assembly_map.insert(assembly_name.name.clone(), index);
-        index
+        assembly
     }
 
     fn il_box_obj(&mut self, type_token: u32, value: ILType) {
@@ -187,20 +201,20 @@ impl Interpreter {
     }
 
     // 加载其他Assembly中的方法
-    fn load_dest_method(&mut self, method_token: u32) -> &Method {
-        let assembly = &self.assemblies[self.assembly_index];
+    fn load_dest_method(&mut self, ctx: &mut Context, method_token: u32) -> &Method {
+        let assembly = &ctx.assembly;
         let member_ref = &assembly.member_refs[(method_token & 0x00FFFFFF) as usize - 1];
         let class = member_ref.class;
         if (class >> 24) == 0x01 {  // TypeRef
-            let type_ref = self.assemblies[self.assembly_index].type_refs[(class & 0x00FFFFFF) as usize - 1].clone();
+            let type_ref = assembly.type_refs[(class & 0x00FFFFFF) as usize - 1].clone();
             let resolution_scope = assembly.metadata.resolve_resolution_scope(type_ref.resolution_scope as u32).unwrap();
             if (resolution_scope >> 24) == 0x23 {  // AssemblyRef
                 let assembly_name = &assembly.assembly_refs[(resolution_scope & 0x00FFFFFF) as usize - 1].assembly_name.clone();
                 if self.assembly_map.get(&assembly_name.name).is_none() {  // 如果引用的Assembly没有加载，那就加载
-                    self.assembly_index = self.load_assembly(&assembly_name);
+                    ctx.assembly = self.load_assembly(&assembly_name);
                 }
 
-                let assembly = &self.assemblies[self.assembly_index];
+                let assembly = &ctx.assembly;
                 let dest_type = assembly.type_defs.get(&type_ref.full_name).unwrap();
                 
             }
@@ -208,30 +222,27 @@ impl Interpreter {
         panic!("Invalid method_token")
     }
 
-    fn il_call(&mut self, method_token: u32) {
-        let assembly_index = self.assembly_index;
+    fn il_call(&mut self, ctx: &mut Context, method_token: u32) {
         let param_count;
-        let mut rip;
-        {
-            let assembly = &self.assemblies[assembly_index];
-            let method = match method_token >> 24 {
-                0x06 => {  // 表示是当前Assembly内的方法
-                    self.call_stack.push((self.assembly_index, method_token));
-                    &assembly.methods[(method_token & 0x00FFFFFF) as usize - 1]
-                },
-                0x0A => {  // 需要先找到MemberRef，再找到TypeRef，最后定位到AssemblyRef
-                    self.load_dest_method(method_token)
-                },
-                _ => panic!("Invalid method_token")
-            };
-            println!("call: {:?}", method);
-            if method.is_static() {
-                param_count = method.param_list.count as usize;
-            } else {
-                param_count = method.param_list.count as usize + 1;  // 实例方法第一个参数是this
-            }
-            rip = method.code_position;  // 当前函数指针
+        let method = match method_token >> 24 {
+            0x06 => {  // 表示是当前Assembly内的方法
+                ctx.call_stack.push((ctx.assembly.clone(), method_token));
+                &ctx.assembly.methods[(method_token & 0x00FFFFFF) as usize - 1]
+            },
+            0x0A => {  // 需要先找到MemberRef，再找到TypeRef，最后定位到AssemblyRef
+                self.load_dest_method(ctx, method_token)  // 此时可能更改ctx的Assembly
+            },
+            _ => panic!("Invalid method_token")
+        };
+        println!("call: {:?}", method);
+        if method.is_static() {
+            param_count = method.param_list.count as usize;
+        } else {
+            param_count = method.param_list.count as usize + 1;  // 实例方法第一个参数是this
         }
+        let assembly = ctx.assembly.clone();
+        let reader = &assembly.reader;
+        let mut rip = method.code_position;  // 当前函数指针
 
         let mut params = VecDeque::new();
         for _ in 0..param_count {
@@ -239,9 +250,8 @@ impl Interpreter {
         }
 
         let mut locals = [ILType::Ref(ILRefType::Null); 8];  // TODO
-        loop {
-            let op = FromPrimitive::from_u8(self.assemblies[assembly_index].image[rip]);
-            rip += 1;
+        loop {  // 禁止使用return脱离循环
+            let op = FromPrimitive::from_u8(reader.read_u8_immut(&mut rip).unwrap());
             match op {
                 Some(OpCode::Nop) => {},
                 Some(OpCode::Break) => {
@@ -284,33 +294,27 @@ impl Interpreter {
                     locals[3] = self.stack.pop_back().unwrap();
                 },
                 Some(OpCode::Ldargs) => {
-                    let index = self.assemblies[assembly_index].image[rip];
-                    rip += 1;
+                    let index = reader.read_u8_immut(&mut rip).unwrap();
                     self.stack.push_back(params[index as usize]);
                 },
                 Some(OpCode::Ldargas) => {
-                    let index = self.assemblies[assembly_index].image[rip];
-                    rip += 1;
+                    let index = reader.read_u8_immut(&mut rip).unwrap();
                     self.stack.push_back(ILType::Ptr(ptr::addr_of_mut!(params[index as usize])));
                 },
                 Some(OpCode::Stargs) => {
-                    let index = self.assemblies[assembly_index].image[rip];
-                    rip += 1;
+                    let index = reader.read_u8_immut(&mut rip).unwrap();
                     params[index as usize] = self.stack.pop_back().unwrap();
                 },
                 Some(OpCode::Ldlocs) => {
-                    let index = self.assemblies[assembly_index].image[rip];
-                    rip += 1;
+                    let index = reader.read_u8_immut(&mut rip).unwrap();
                     self.stack.push_back(locals[index as usize]);
                 },
                 Some(OpCode::Ldlocas) => {
-                    let index = self.assemblies[assembly_index].image[rip];
-                    rip += 1;
+                    let index = reader.read_u8_immut(&mut rip).unwrap();
                     self.stack.push_back(ILType::Ptr(ptr::addr_of_mut!(locals[index as usize])));
                 },
                 Some(OpCode::Stlocs) => {
-                    let index = self.assemblies[assembly_index].image[rip];
-                    rip += 1;
+                    let index = reader.read_u8_immut(&mut rip).unwrap();
                     locals[index as usize] = self.stack.pop_back().unwrap();
                 },
                 Some(OpCode::Ldnull) => {
@@ -347,28 +351,23 @@ impl Interpreter {
                     self.stack.push_back(ILType::Val(ILValType::Int32(8)));
                 },
                 Some(OpCode::Ldci4s) => {
-                    let val = self.assemblies[assembly_index].image[rip];
-                    rip += 1;
+                    let val = reader.read_u8_immut(&mut rip).unwrap();
                     self.stack.push_back(ILType::Val(ILValType::Byte(val)));
                 },
                 Some(OpCode::Ldci4) => {
-                    let val = u32::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 4].try_into().unwrap());
-                    rip += 4;
+                    let val = reader.read_u32_immut(&mut rip).unwrap();
                     self.stack.push_back(ILType::Val(ILValType::UInt32(val)));
                 },
                 Some(OpCode::Ldci8) => {
-                    let val = u64::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 8].try_into().unwrap());
-                    rip += 8;
+                    let val = reader.read_u64_immut(&mut rip).unwrap();
                     self.stack.push_back(ILType::Val(ILValType::UInt64(val)));
                 },
                 Some(OpCode::Ldcr4) => {
-                    let val = f32::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 4].try_into().unwrap());
-                    rip += 4;
+                    let val = reader.read_f32_immut(&mut rip).unwrap();
                     self.stack.push_back(ILType::Val(ILValType::Single(val)));
                 },
                 Some(OpCode::Ldcr8) => {
-                    let val = f64::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 8].try_into().unwrap());
-                    rip += 8;
+                    let val = reader.read_f64_immut(&mut rip).unwrap();
                     self.stack.push_back(ILType::Val(ILValType::Double(val)));
                 },
                 Some(OpCode::Dup) => {
@@ -378,24 +377,23 @@ impl Interpreter {
                     self.stack.pop_back();
                 },
                 Some(OpCode::Jmp) => {
-                    assert_eq!(self.assemblies[assembly_index].params.len(), 0);
-                    let token = u32::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 4].try_into().unwrap());
-                    self.il_call(token);
-                    return;
+                    assert_eq!(assembly.params.len(), 0);
+                    let token = reader.read_u32_immut(&mut rip).unwrap();
+                    self.il_call(ctx, token);
+                    break;
                 },
                 Some(OpCode::Call) => {
-                    let token = u32::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 4].try_into().unwrap());
-                    rip += 4;
-                    self.il_call(token);
+                    let token = reader.read_u32_immut(&mut rip).unwrap();
+                    self.il_call(ctx, token);
                 },
                 Some(OpCode::Calli) => {
                     todo!();
                 },
                 Some(OpCode::Ret) => {
-                    return;
+                    break;
                 },
                 Some(OpCode::Brs) => {
-                    let target = self.assemblies[assembly_index].image[rip];
+                    let target = reader.read_u8_immut(&mut rip).unwrap();
                     rip += 1 + target as usize;
                 },
                 // 忽略一些
@@ -456,17 +454,15 @@ impl Interpreter {
                 },
                 // 忽略一些
                 Some(OpCode::Ldstr) => {
-                    let token = u32::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 4].try_into().unwrap());
-                    rip += 4;
-                    let str = self.assemblies[assembly_index].metadata.get_us_string(token).unwrap();
+                    let token = reader.read_u32_immut(&mut rip).unwrap();
+                    let str = assembly.metadata.get_us_string(token).unwrap();
                     self.il_new_string(str);
                 },
                 Some(OpCode::Newobj) => {
-                    let token = u32::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 4].try_into().unwrap());  // .ctor方法的token
-                    rip += 4;
-                    let type_token = self.assemblies[assembly_index].methods[token as usize - 0x06000001].owner_type + 0x02000001;
+                    let token = reader.read_u32_immut(&mut rip).unwrap();
+                    let type_token = assembly.methods[token as usize - 0x06000001].owner_type + 0x02000001;
                     self.il_new_obj(type_token);  // 根据.ctor找到类，new出来推送到栈上，作为.ctor的this
-                    self.il_call(token);
+                    self.il_call(ctx, token);
                 },
                 // 忽略一些
                 Some(OpCode::Unbox) => {
@@ -527,8 +523,7 @@ impl Interpreter {
                     todo!();
                 },
                 Some(OpCode::Box) => {
-                    let token = u32::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 4].try_into().unwrap());
-                    rip += 4;
+                    let token = reader.read_u32_immut(&mut rip).unwrap();
                     let value = self.stack.pop_back().unwrap();
                     self.il_box_obj(token, value);
                 },
@@ -540,8 +535,7 @@ impl Interpreter {
                 },
                 // 忽略一些
                 Some(OpCode::Unboxany) => {
-                    let token = u32::from_le_bytes(self.assemblies[assembly_index].image[rip..rip + 4].try_into().unwrap());
-                    rip += 4;
+                    let token = reader.read_u32_immut(&mut rip).unwrap();
                     let boxed = self.stack.pop_back().unwrap();
                     let ref_obj = &self.objects[boxed.get_ref()];
                     if ref_obj.get_type() != token {
@@ -551,11 +545,12 @@ impl Interpreter {
                 },
                 // 忽略一些
                 _ => {
-                    println!("Unknown OpCode: 0x{:02X}", self.assemblies[assembly_index].image[rip - 1]);
-                    return
+                    println!("Unknown OpCode: 0x{:02X}", reader.read_u8_immut(&mut rip).unwrap());
+                    break;
                 }
             }
         }
+        ctx.call_stack.pop();
     }
 
     fn convert_to_string(&self, val: &ILType) -> String {

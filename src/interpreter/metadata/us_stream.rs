@@ -1,25 +1,24 @@
 use std::io;
-use crate::interpreter::metadata::CompressedStream;
-use crate::interpreter::image_reader::ImageReader;
+use crate::interpreter::data_reader::DataReader;
 
 #[derive(Debug, Default)]
 pub struct USStream {
-    stream: CompressedStream
+    reader: DataReader
 }
 
 impl USStream {
-    pub fn new(reader: &mut ImageReader, size: u32) -> io::Result<USStream> {
+    pub fn new(reader: &mut DataReader, size: usize) -> io::Result<USStream> {
         Ok(USStream { 
-            stream: CompressedStream::new(reader, size)? 
+            reader: reader.slice(size)? 
         })
     }
 
-    pub fn read(&self, offset: u32) -> io::Result<String> {
+    pub fn read(&self, offset: usize) -> io::Result<String> {
         if offset == 0 {
             return Ok(Default::default());
         }
         let mut offset = offset as usize;
-        match self.stream.try_read_compressed_u32(&mut offset) {
+        match self.reader.try_read_compressed_u32_immut(&mut offset) {
             Ok(len) => {
                 Ok(self.read_utf16_string(offset, len as usize)?)
             }
@@ -30,11 +29,10 @@ impl USStream {
     }
 
     fn read_utf16_string(&self, offset: usize, length: usize) -> io::Result<String> {
-        if offset + length > self.stream.data.len() {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Unexpected end of USStream"));
-        }
-        let array = Vec::from(&self.stream.data[offset..offset + length]);
-        let array: Vec<u16> = array.chunks_exact(2).into_iter().map(|a| u16::from_ne_bytes([a[0], a[1]])).collect();
-        Ok(String::from_utf16_lossy(array.as_slice()))
+        self.reader.check_position(offset, length)?;
+        let mut offset = offset;
+        let vec = self.reader.read_bytes_vec_exact_immut(&mut offset, length)?;
+        let vec: Vec<u16> = vec.chunks_exact(2).into_iter().map(|a| u16::from_ne_bytes([a[0], a[1]])).collect();
+        Ok(String::from_utf16_lossy(vec.as_slice()))
     }
 }
