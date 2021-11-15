@@ -19,12 +19,8 @@ impl USStream {
         }
         let mut offset = offset as usize;
         match self.reader.try_read_compressed_u32_immut(&mut offset) {
-            Ok(len) => {
-                Ok(self.read_utf16_string(offset, len as usize)?)
-            }
-            Err(_) => {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid USStream"));
-            }
+            Some(len) => Ok(self.read_utf16_string(offset, len as usize)?),
+            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid USStream")),
         }
     }
 

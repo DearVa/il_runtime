@@ -1,11 +1,15 @@
-use super::il_type::ILType;
+use std::{hash::{Hash, Hasher}, rc::Rc};
+
+use super::{Assembly, il_type::ILType};
 
 pub struct Object {
-    pub flags: u8,  // 包括locked、pinned、gc_mark和代，第2位0表示TypeRef，1表示TypeDef
+    /// 包括locked、pinned、gc_mark和代，第2位0表示TypeRef，1表示TypeDef
+    pub flags: u8,
     pub hash: u32,
     pub size: u16,
     pub type_token: [u8; 3],
-    pub box_value: Option<ILType>,  // 如果是box，那么这个存储原始数据
+    /// 如果是box，那么这个存储原始数据
+    pub box_value: Option<ILType>,
 }
 
 impl ToString for Object {
@@ -15,6 +19,12 @@ impl ToString for Object {
         s.push_str(&format!("type_token: {}", self.get_type()));
         // s.push_str(&format!("value: {}", self.value));
         s
+    }
+}
+
+impl Hash for Object {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state);
     }
 }
 

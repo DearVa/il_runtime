@@ -107,18 +107,69 @@ impl DataReader {
         Ok(value)
     }
 
-    pub fn try_read_compressed_u32_immut(&self, position: &mut usize) -> io::Result<u32> {
-        self.check_position(*position, 0)?;
-        let b = self.read_u8_immut(position)?;
+    pub fn try_read_compressed_u32_immut(&self, position: &mut usize) -> Option<u32> {
+        if self.check_position(*position, 0).is_err() {
+            return None;
+        }
+        let b = self.read_u8_immut(position);
+        if b.is_err() {
+            return None;
+        }
+        let b = b.unwrap();
         if (b & 0x80) == 0 {
-            return Ok(b as u32);
+            return Some(b as u32);
         }
         if (b & 0xC0) == 0x80 {
-            self.check_position(*position, 2)?;
-            return Ok((((b & 0x3F) as u32) << 8) | self.read_u8_immut(position)? as u32);
+            if self.check_position(*position, 2).is_err() {
+                return None;
+            }
+            return Some((((b & 0x3F) as u32) << 8) | self.read_u8_immut(position).unwrap() as u32);
         }
-        self.check_position(*position, 4)?;
-        Ok((((b & 0x1F) as u32) << 24) | (self.read_u8_immut(position)? as u32) << 16 | (self.read_u8_immut(position)? as u32) << 8 | self.read_u8_immut(position)? as u32)
+        if self.check_position(*position, 4).is_err() {
+            return None;
+        }
+        Some((((b & 0x1F) as u32) << 24) | (self.read_u8_immut(position).unwrap() as u32) << 16 | (self.read_u8_immut(position).unwrap() as u32) << 8 | self.read_u8_immut(position).unwrap() as u32)
+    }
+
+    pub fn try_read_compressed_i32_immut(&self, position: &mut usize) -> Option<i32> {
+        if self.check_position(*position, 0).is_err() {
+            return None;
+        }
+        let b = self.read_u8_immut(position);
+        if b.is_err() {
+            return None;
+        }
+        let b = b.unwrap();
+        if (b & 0x80) == 0 {
+            if (b & 1) != 0 {
+                return Some(-0x40 | (b as i32 >> 1));
+            } else {
+                return Some(b as i32 >> 1);
+            }
+        }
+        if (b & 0xC0) == 0x80 {
+            if self.check_position(*position, 2).is_err() {
+                return None;
+            }
+            let temp = (((b & 0x3F) as i32) << 8) | self.read_u8_immut(position).unwrap() as i32;
+            if (temp & 1) != 0 {
+                return Some(-0x2000 | (temp >> 1));
+            } else {
+                return Some(temp >> 1);
+            }
+        }
+        if (b & 0xE0) == 0xC0 {
+            if self.check_position(*position, 4).is_err() {
+                return None;
+            }
+            let temp = (((b & 0x1F) as i32) << 24) | (self.read_u8_immut(position).unwrap() as i32) << 16 | (self.read_u8_immut(position).unwrap() as i32) << 8 | self.read_u8_immut(position).unwrap() as i32;
+            if (temp & 1) != 0 {
+                return Some(-0x10000000 | (temp >> 1));
+            } else {
+                return Some(temp >> 1);
+            }
+        }
+        None
     }
 
     pub fn read_u64(&mut self) -> io::Result<u64> {

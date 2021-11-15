@@ -17,13 +17,7 @@ impl MemberRef {
             let class = metadata.resolve_member_ref(member_ref_table.columns[0].get_cell_u16_or_u32(row)).unwrap();
             let name = metadata.strings_stream.get_string_clone(member_ref_table.columns[1].get_cell_u16_or_u32(row))?;
             let signature = CallingConventionSig::read_metadata_sig(metadata, member_ref_table.columns[2].get_cell_u16_or_u32(row));
-            match &signature {
-                Some(CallingConventionSig::MethodSig(method)) => {
-                    println!("{} {}{}", method.get_ret_type_string(), name, method.get_params_type_string());
-                }
-                _ => ()
-            }
-
+            
             member_refs.push(MemberRef { 
                 token: 0x0A000001 + row as u32,
                 class,

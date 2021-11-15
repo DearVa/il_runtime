@@ -17,6 +17,7 @@ mod blob_stream;
 use blob_stream::*;
 pub mod md_token;
 use md_token::*;
+
 use super::DataReader;
 
 use std::io;
@@ -145,6 +146,32 @@ impl RidList {
             },
         }
     }
+
+    pub fn iter(&self) -> RidListIter {
+        RidListIter {
+            rid_list: self,
+            index: 0,
+        }
+    }
+}
+
+pub struct RidListIter<'a> {
+    rid_list: &'a RidList,
+    index: u32,
+}
+
+impl<'a> Iterator for RidListIter<'a> {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<u32> {
+        if self.index >= self.rid_list.count {
+            None
+        } else {
+            let result = self.rid_list.get(self.index);
+            self.index += 1;
+            Some(result)
+        }
+    }
 }
 
 #[derive(Eq, PartialEq)]
@@ -154,6 +181,7 @@ enum MetadataType {
     ENC
 }
 
+/// 只包含Raw数据，解析由Assembly类负责
 pub struct Metadata {
     pub table_stream: TableStream,
     pub strings_stream: StringsStream,

@@ -1,3 +1,4 @@
+mod hash_vec;
 mod interpreter;
 use interpreter::*;
 

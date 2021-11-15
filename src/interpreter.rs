@@ -14,8 +14,6 @@ mod data_reader;
 use data_reader::*;
 mod metadata;
 use metadata::*;
-mod signature;
-pub use signature::*;
 mod type_def;
 use type_def::*;
 mod type_ref;
@@ -26,6 +24,10 @@ mod assembly_name;
 use assembly_name::*;
 mod assembly_ref;
 use assembly_ref::*;
+mod type_sig;
+use type_sig::*;
+mod signature;
+use signature::*;
 mod method;
 use method::*;
 mod param;
@@ -33,16 +35,19 @@ use param::*;
 mod object;
 use object::*;
 
+use crate::hash_vec::HashVec;
+
 pub struct Assembly {
     pub assembly_path: String,
     pub assembly_name: AssemblyName,
+    pub is_cor_lib: bool,
 
     pub reader: DataReader,
     pub pe: PE,
     pub metadata: Metadata,
 
-    pub type_refs: Vec<TypeRef>,                //  <token(0x01000001...), TypeRef>
-    pub type_defs: HashMap<String, TypeDef>,    //  <namespace.classname, TypeDef>
+    pub type_refs: HashVec<String, TypeRef>,                //  <token(0x01000001...), TypeRef>
+    pub type_defs: HashVec<String, TypeDef>,    //  <namespace.classname, TypeDef>
     pub methods: Vec<Method>,                   //  <token(0x06000001...), Method>
     pub params: Vec<Param>,                     //  <token(0x08000001...), Param>
     pub member_refs: Vec<MemberRef>,            //  <token(0x0A000001...), MemberRef>
@@ -50,7 +55,10 @@ pub struct Assembly {
 }
 
 impl Assembly {
-    pub fn new(assembly_path: &String) -> io::Result<Assembly> {
+    const NET5_PATH: &'static str = r"C:\Program Files\dotnet\shared\Microsoft.NETCore.App\5.0.11\";
+    const COR_LIB_NAME: &'static str = r"System.Private.CoreLib";
+
+    pub fn new(assembly_path: &String, is_cor_lib: bool) -> io::Result<Assembly> {
         let mut file = File::open(assembly_path)?;
         let metadata = file.metadata().expect("unable to read metadata");
         let mut image = vec![0; metadata.len() as usize];
@@ -66,12 +74,7 @@ impl Assembly {
         // 例如类型定义中的Methods的RidList按顺序是这样，1->1, 1->4, 4->4, 4->5
         // 那么这个数组就存放的是[1, 1, 4, 4]
         // read_methods的时候，假设一个method的Rid是3，那么就能知道4是第一个比3大的，是第3个方法的Method，即0x06000003
-        let mut method_to_type_map = Vec::new();
-        for type_def in type_defs.values() {
-            method_to_type_map.push(type_def.method_list.start_rid);
-        }
-        method_to_type_map.sort();
-
+        let method_to_type_map = type_defs.vec().map(|t| t.method_list.start_rid).collect::<Vec<u32>>();
         let methods = Method::read_methods(&pe, &metadata, method_to_type_map, &mut reader)?;
         let params = Param::read_params(&metadata)?;
 
@@ -84,7 +87,7 @@ impl Assembly {
         let build_number = assembly_table.columns[3].get_cell_u16(0);
         let revision_number = assembly_table.columns[4].get_cell_u16(0);
         let flags = assembly_table.columns[5].get_cell_u32(0);
-        let public_key_token = metadata.blob_stream.read(assembly_table.columns[6].get_cell_u16(0) as u32)?;
+        let public_key_token = metadata.blob_stream.read(assembly_table.columns[6].get_cell_u16_or_u32(0))?;
         let name = metadata.strings_stream.get_string_clone(assembly_table.columns[7].get_cell_u16_or_u32(0))?;
         
         println!("Assembly loaded: {:?}", assembly_path);
@@ -100,6 +103,7 @@ impl Assembly {
                 public_key_token,
                 name,
             },
+            is_cor_lib,
 
             reader,
             pe,
@@ -115,13 +119,46 @@ impl Assembly {
     }
 
     pub fn load(assembly_name: &AssemblyName) -> io::Result<Assembly> {
-        const NET5_PATH: &'static str = r"C:\Program Files\dotnet\shared\Microsoft.NETCore.App\5.0.11\";
-        let assembly_path = format!("{}{}.dll", NET5_PATH, assembly_name.name);
-        let assembly = Assembly::new(&assembly_path)?;
+        let assembly_path = format!("{}{}.dll", Self::NET5_PATH, assembly_name.name);
+        let assembly = Assembly::new(&assembly_path, false)?;
         if assembly.assembly_name != *assembly_name {
             return Err(io::Error::new(io::ErrorKind::Other, "Assembly name not match."));
         }
         Ok(assembly)
+    }
+
+    pub fn load_cor_lib() -> io::Result<Assembly> {
+        let assembly_path = format!("{}{}.dll", Self::NET5_PATH, Self::COR_LIB_NAME);
+        Assembly::new(&assembly_path, true)
+    }
+
+    /// 将CorLibType解析成u32，即指向TypeDef（如果当前就是mscorlib）或者TypeRef的token
+    pub fn resolve_cor_lib_type(&self, cor_lib_type: &CorLibType) -> io::Result<u32> {
+        let type_full_name = &match cor_lib_type {
+            CorLibType::Void => "System.Void",
+            CorLibType::Boolean => "System.Boolean",
+            CorLibType::Char => "System.Char",
+            CorLibType::SByte => "System.SByte",
+            CorLibType::Byte => "System.Byte",
+            CorLibType::Int16 => "System.Int16",
+            CorLibType::UInt16 => "System.UInt16",
+            CorLibType::Int32 => "System.Int32",
+            CorLibType::UInt32 => "System.UInt32",
+            CorLibType::Int64 => "System.Int64",
+            CorLibType::UInt64 => "System.UInt64",
+            CorLibType::Single => "System.Single",
+            CorLibType::Double => "System.Double",
+            CorLibType::String => "System.String",
+            CorLibType::TypedReference => "System.TypedReference",
+            CorLibType::IntPtr => "System.IntPtr",
+            CorLibType::UIntPtr => "System.UIntPtr",
+            CorLibType::Object => "System.Object",
+        }.to_string();
+        if self.is_cor_lib {
+            self.type_defs.key_get(type_full_name).map(|t| t.token).ok_or(io::Error::new(io::ErrorKind::Other, "CorLibType not found."))
+        } else {
+            self.type_refs.key_get(type_full_name).map(|t| t.token).ok_or(io::Error::new(io::ErrorKind::Other, "CorLibType not found."))
+        }
     }
 }
 
@@ -142,7 +179,7 @@ impl Context {
 }
 
 pub struct Interpreter {
-    /// index0放入口Assembly，加载的外部Assembly依次往后放
+    /// index0放CoreLib，1放入口Assembly，加载的外部Assembly依次往后放
     assemblies: Vec<Rc<Assembly>>,
     /// 根据AssemblyName定位Assemblies的index
     assembly_map: HashMap<String, usize>,
@@ -155,8 +192,9 @@ pub struct Interpreter {
 impl Interpreter {
     pub fn new(assembly_path: String) -> io::Result<Interpreter> {
         let mut assemblies = Vec::new();
+        assemblies.push(Rc::new(Assembly::load_cor_lib().unwrap()));  // index0放入mscorlib
 
-        let assembly = Assembly::new(&assembly_path)?;
+        let assembly = Assembly::new(&assembly_path, false)?;
         println!("{}", "Assembly Methods: ".green());
         for method in assembly.methods.iter() {
             println!("{:?}", method);
@@ -174,7 +212,7 @@ impl Interpreter {
 
     pub fn run(&mut self) {
         println!("\nstart run:\n");
-        self.il_call(&mut Context::new(&self.assemblies[0]), 0x06000001);
+        self.il_call(&mut Context::new(&self.assemblies[1]), 0x06000001);
     }
 
     fn load_assembly(&mut self, assembly_name: &AssemblyName) -> Rc<Assembly> {
@@ -200,13 +238,15 @@ impl Interpreter {
         self.stack.push_back(ILType::Ref(ILRefType::String(self.strings.len() - 1)));
     }
 
-    // 加载其他Assembly中的方法
-    fn load_dest_method(&mut self, ctx: &mut Context, method_token: u32) -> &Method {
-        let assembly = &ctx.assembly;
+    /// 加载其他Assembly中的方法，更改ctx的Assembly并返回rid
+    fn load_dest_method(&mut self, ctx: &mut Context, method_token: u32) -> u32 {
+        let assembly = Rc::clone(&ctx.assembly);
         let member_ref = &assembly.member_refs[(method_token & 0x00FFFFFF) as usize - 1];
+        let name = member_ref.name.clone();
         let class = member_ref.class;
+
         if (class >> 24) == 0x01 {  // TypeRef
-            let type_ref = assembly.type_refs[(class & 0x00FFFFFF) as usize - 1].clone();
+            let type_ref = assembly.type_refs.index_get((class & 0x00FFFFFF) as usize - 1).unwrap().clone();
             let resolution_scope = assembly.metadata.resolve_resolution_scope(type_ref.resolution_scope as u32).unwrap();
             if (resolution_scope >> 24) == 0x23 {  // AssemblyRef
                 let assembly_name = &assembly.assembly_refs[(resolution_scope & 0x00FFFFFF) as usize - 1].assembly_name.clone();
@@ -215,8 +255,13 @@ impl Interpreter {
                 }
 
                 let assembly = &ctx.assembly;
-                let dest_type = assembly.type_defs.get(&type_ref.full_name).unwrap();
-                
+                let dest_type = assembly.type_defs.key_get(&type_ref.full_name).unwrap();
+                for dest_method_rid in dest_type.method_list.iter() {
+                    let dest_method = &assembly.methods[dest_method_rid as usize - 1];
+                    if dest_method.name == name && dest_method.signature == member_ref.signature {
+                        return dest_method_rid;  
+                    }
+                }
             }
         }
         panic!("Invalid method_token")
@@ -230,7 +275,8 @@ impl Interpreter {
                 &ctx.assembly.methods[(method_token & 0x00FFFFFF) as usize - 1]
             },
             0x0A => {  // 需要先找到MemberRef，再找到TypeRef，最后定位到AssemblyRef
-                self.load_dest_method(ctx, method_token)  // 此时可能更改ctx的Assembly
+                let dest_method_rid = self.load_dest_method(ctx, method_token);
+                &ctx.assembly.methods[dest_method_rid as usize - 1]
             },
             _ => panic!("Invalid method_token")
         };
@@ -394,7 +440,7 @@ impl Interpreter {
                 },
                 Some(OpCode::Brs) => {
                     let target = reader.read_u8_immut(&mut rip).unwrap();
-                    rip += 1 + target as usize;
+                    rip += target as usize;
                 },
                 // 忽略一些
                 Some(OpCode::Add) => {

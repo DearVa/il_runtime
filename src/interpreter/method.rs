@@ -1,4 +1,4 @@
-use std::{fmt::{self, Debug, Formatter}, io};
+use std::{fmt::{self, Debug, Display, Formatter}, io};
 
 use crate::interpreter::CallingConventionSig;
 
@@ -41,48 +41,54 @@ impl Method {
                 }
             }
 
-            let rva = method_table.columns[0].get_cell_u32(row);
-            if rva == 0 {
-                continue;
-            }
-            let header_position = pe.rva_to_file_offset(rva);
-            reader.set_position(header_position)?;
-
             let mut flags: u16;
             let header_size: u8;
             let code_size: u32;
             let max_stack: u16;
             let local_var_sig_token: u32;
-            let b = reader.read_u8()? & 7;
-            match b {
-                2 | 6 => {  // Tiny header. [7:2] = code size, max stack is 8, no locals or exception handlers
-                    flags = 2;
-                    max_stack = 8;
-                    code_size = (b >> 2) as u32;
-                    local_var_sig_token = 0;
-                    header_size = 1;
-                },
-                3 => {  // Fat header. Can have locals and exception handlers
-                    flags = (reader.read_u8()? as u16) << 8;
-                    header_size = 4 * (flags >> 12) as u8;
-                    max_stack = reader.read_u16()?;
-                    code_size = reader.read_u32()?;
-                    local_var_sig_token = reader.read_u32()?;
-                    
-                    // The CLR allows the code to start inside the method header. But if it does,
-				    // the CLR doesn't read any exceptions.
-                    reader.back(12)?;
-                    reader.advance(header_size as usize)?;
-                    if header_size < 12 {
-                        flags &= 0xFFF7;
-                    }
-                },
-                _ => panic!("Invalid method header")
-            }
+            let header_position: usize;
 
+            let rva = method_table.columns[0].get_cell_u32(row);  // RVA记录了方法具体实现的字节码位置
+            if rva == 0 {  // 有些方法有记录但是没有实际的实现（例如InternalCall或者P/Invoke），此时RVA为0
+                flags = 0;
+                header_size = 0;
+                code_size = 0;
+                max_stack = 0;
+                local_var_sig_token = 0;
+                header_position = 0;
+            } else {
+                header_position = pe.rva_to_file_offset(rva);
+                reader.set_position(header_position)?;
+    
+                let b = reader.read_u8()? & 7;
+                match b {
+                    2 | 6 => {  // Tiny header. [7:2] = code size, max stack is 8, no locals or exception handlers
+                        flags = 2;
+                        max_stack = 8;
+                        code_size = (b >> 2) as u32;
+                        local_var_sig_token = 0;
+                        header_size = 1;
+                    },
+                    3 => {  // Fat header. Can have locals and exception handlers
+                        flags = (reader.read_u8()? as u16) << 8;
+                        header_size = 4 * (flags >> 12) as u8;
+                        max_stack = reader.read_u16()?;
+                        code_size = reader.read_u32()?;
+                        local_var_sig_token = reader.read_u32()?;
+                        
+                        // The CLR allows the code to start inside the method header. But if it does,
+                        // the CLR doesn't read any exceptions.
+                        reader.back(12)?;
+                        reader.advance(header_size as usize)?;
+                        if header_size < 12 {
+                            flags &= 0xFFF7;
+                        }
+                    },
+                    _ => panic!("Invalid method header")
+                }    
+            }
             // TODO: 读取locals
 
-            let owner_type_rid = type_map_index as u32;
             methods.push(Method {
                 token: 0x06000001 + row as u32,
                 rva,
@@ -93,7 +99,7 @@ impl Method {
                 name: metadata.strings_stream.get_string_clone(method_table.columns[3].get_cell_u16_or_u32(row))?,
                 signature: CallingConventionSig::read_metadata_sig(metadata, method_table.columns[4].get_cell_u16_or_u32(row)),
                 param_list: metadata.get_param_rid_list(row + 1),
-                owner_type: owner_type_rid - 1,
+                owner_type: type_map_index as u32 - 1,
 
                 max_stack,
                 header_size,

@@ -19,8 +19,8 @@ impl BlobStream {
         }
         let mut offset = offset as usize;
         match self.stream.try_read_compressed_u32_immut(&mut offset) {
-            Ok(length) => self.stream.read_bytes_vec_exact_immut(&mut offset, length as usize),
-            Err(e) => Err(e),
+            Some(length) => self.stream.read_bytes_vec_exact_immut(&mut offset, length as usize),
+            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid offset")),
         }
     }
 }
