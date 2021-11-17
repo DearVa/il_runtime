@@ -37,6 +37,23 @@ impl ILValType {
             ILValType::UShort(i) => i == 0,
         }
     }
+
+    pub fn to_u32(&self) -> u32 {
+        match *self {
+            ILValType::Boolean(b) => b as u32,
+            ILValType::Byte(b) => b as u32,
+            ILValType::SByte(b) => b as u32,
+            ILValType::Char(c) => c as u32,
+            ILValType::Double(d) => d as u32,
+            ILValType::Single(f) => f as u32,
+            ILValType::Int32(i) => i as u32,
+            ILValType::UInt32(i) => i,
+            ILValType::Int64(i) => i as u32,
+            ILValType::UInt64(i) => i as u32,
+            ILValType::Short(i) => i as u32,
+            ILValType::UShort(i) => i as u32,
+        }
+    }
 }
 
 impl ToString for ILValType {

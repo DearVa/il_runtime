@@ -44,6 +44,14 @@ impl<K, V> HashVec<K, V> where K: Eq + Hash {
         Some(&mut self.vec[index])
     }
 
+    /// 通过key获取index，没找到返回None
+    pub fn key_get_index(&self, key: &K) -> Option<usize> {
+        match self.map.get(key) {
+            Some(index) => Some(*index),
+            None => None,
+        }
+    }
+
     pub fn index_get(&self, index: usize) -> Option<&V> {
         if index > self.vec.len() {
             return None;

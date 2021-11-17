@@ -353,11 +353,16 @@ impl Interpreter {
             let resolution_scope = assembly.metadata.resolve_resolution_scope(type_ref.resolution_scope as u32).unwrap();
             if (resolution_scope >> 24) == 0x23 {  // AssemblyRef
                 let assembly_name = &assembly.assembly_refs[(resolution_scope & 0x00FFFFFF) as usize - 1].assembly_name.clone();
-                if self.assemblies.key_get(&assembly_name.name).is_none() {  // 如果引用的Assembly没有加载，那就加载
-                    ctx.assembly = self.load_assembly(&assembly_name);
-                    ctx.assembly_index = self.assemblies.len() - 1;
+                match self.assemblies.key_get_index(&assembly_name.name) {
+                    Some(index) => {
+                        ctx.assembly = self.assemblies.index_get(index).unwrap().clone();
+                        ctx.assembly_index = index;
+                    },
+                    None => {
+                        ctx.assembly = self.load_assembly(&assembly_name);
+                        ctx.assembly_index = self.assemblies.len() - 1;
+                    }
                 }
-
                 let mut assembly = &ctx.assembly;
                 let mut dest_type = assembly.type_defs.key_get(&type_ref.full_name);
                 if dest_type.is_none() {  // 说明是ExportedType
@@ -365,9 +370,15 @@ impl Interpreter {
                     match exported_type.implementation_type {
                         ExportedTypeImpl::AssemblyRef => {
                             let assembly_name = &assembly.assembly_refs[exported_type.implementation_rid as usize - 1].assembly_name.clone();
-                            if self.assemblies.key_get(&assembly_name.name).is_none() {  // 如果引用的Assembly没有加载，那就加载
-                                ctx.assembly = self.load_assembly(&assembly_name);
-                                ctx.assembly_index = self.assemblies.len() - 1;
+                            match self.assemblies.key_get_index(&assembly_name.name) {
+                                Some(index) => {
+                                    ctx.assembly = self.assemblies.index_get(index).unwrap().clone();
+                                    ctx.assembly_index = index;
+                                },
+                                None => {
+                                    ctx.assembly = self.load_assembly(&assembly_name);
+                                    ctx.assembly_index = self.assemblies.len() - 1;
+                                }
                             }
 
                             assembly = &ctx.assembly;
@@ -665,7 +676,20 @@ impl Interpreter {
                     todo!();
                 },
                 Some(OpCode::Switch) => {
-                    todo!();
+                    let n = reader.read_u32_immut(&mut rip).unwrap();
+                    let val = self.stack.pop_back().unwrap();
+                    if let ILType::Val(val) = val {
+                        let val = val.to_u32();
+                        if val < n {
+                            rip += val as usize * 4;
+                            let target = reader.read_u32_immut(&mut rip).unwrap() as i32;
+                            rip = (rip as isize + target as isize) as usize;
+                        } else {
+                            rip += n as usize * 4;
+                        }
+                    } else {
+                        panic!("switch value must be a val");
+                    }
                 },
                 Some(OpCode::Ldindi1) => {
                     todo!();
@@ -882,11 +906,11 @@ impl Interpreter {
                                 ILRefType::Null => {
                                     panic!("Null reference exception.");
                                 },
-                                ILRefType::String(str) => {
+                                ILRefType::String(str_index) => {
                                     todo!();
                                 },
-                                ILRefType::Object(obj) => {
-                                    let obj = &mut self.objects[obj];
+                                ILRefType::Object(obj_index) => {
+                                    let obj = &mut self.objects[obj_index];
                                     let obj_type = assembly.type_defs.index_get(obj.get_type() as usize - 0x02000001).unwrap();
                                     let field_offset = rid - obj_type.field_list.start_rid;
                                     obj.field_list[field_offset as usize] = value;

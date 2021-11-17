@@ -37,10 +37,6 @@ impl TypeSig {
     const MAX_ARRAY_RANK: u32 = 64;
 
     pub fn read_type(reader: &DataReader, offset: &mut usize) -> Option<TypeSig> {
-        // let mut num;
-        // let mut i;
-        // let mut next_type;
-        // let mut result = None;
         match reader.read_u8_immut(offset) {
             Ok(val) => {
                 match FromPrimitive::from_u8(val) {
