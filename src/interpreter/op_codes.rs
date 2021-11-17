@@ -204,4 +204,40 @@ pub enum OpCode {
     Leaves,  // <int8 (target)>,
     Stindi,
     Convu,
+
+    Next = 0xFE,
+}
+
+#[repr(u8)]
+#[derive(FromPrimitive)]
+/// 双字节的opcode，第一位为0xFE
+pub enum OpCode2 {
+    Arglist,
+    Ceq,
+    Cgt,
+    Cgtun,
+    Clt,
+    Cltun,
+    Ldftn,          // <method>
+    Ldvirtftn,      // <method>
+    Ldarg,          // <uint16 (num)>
+    Ldarga,         // <uint16 (argNum)>
+    Starg,          // <uint16 (num)>
+    Ldloc,          // <uint16 (indx)>
+    Ldloca,         // <uint16 (indx)>
+    Stloc,          // <uint16 (indx)>
+    Localloc,
+    Endfilter,
+    Unaligned,      // (alignment)
+    Volatile,
+    Tail,
+    Initobj,        // <typeTok>
+    Constrained,    // <thisType>
+    Cpblk,
+    Initblk,
+    No,
+    Rethrow,
+    Sizeof,         // <typeTok>
+    Refanytype,
+    Readonly,
 }

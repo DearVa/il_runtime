@@ -1,6 +1,6 @@
 use num_traits::FromPrimitive;
 
-use crate::interpreter::metadata::table_stream::MDColumnType;
+use crate::interpreter::metadata::table_stream::MDType;
 use super::table_stream::MDTableType;
 
 pub struct MDToken {
@@ -23,6 +23,10 @@ impl MDToken {
     pub fn to_table_type(token: u32) -> u32 {
         token >> MDToken::TABLE_SHIFT
     }
+
+    pub fn to_table(token: u32) -> Option<MDType> {
+        FromPrimitive::from_u32(MDToken::to_table_type(token))
+    }
 }
 
 pub struct CodedToken {
@@ -40,22 +44,22 @@ impl CodedToken {
         }
     }
 
-    pub fn from_column_size(column_size: MDColumnType) -> CodedToken {
+    pub fn from_md_type(column_size: MDType) -> CodedToken {
         match column_size {
-            MDColumnType::TypeDefOrRef => CodedToken::new(2, vec![MDTableType::TypeDef, MDTableType::TypeRef, MDTableType::TypeSpec]),
-            MDColumnType::HasConstant => CodedToken::new(2, vec![MDTableType::Field, MDTableType::Param, MDTableType::Property]),
-            MDColumnType::HasCustomAttribute => CodedToken::new(5, vec![MDTableType::Method, MDTableType::Field, MDTableType::TypeRef, MDTableType::TypeDef, MDTableType::Param, MDTableType::InterfaceImpl, MDTableType::MemberRef, MDTableType::Module, MDTableType::DeclSecurity, MDTableType::Property, MDTableType::Event, MDTableType::StandAloneSig, MDTableType::ModuleRef, MDTableType::TypeSpec, MDTableType::Assembly, MDTableType::AssemblyRef, MDTableType::File, MDTableType::ExportedType, MDTableType::ManifestResource, MDTableType::GenericParam, MDTableType::GenericParamConstraint, MDTableType::MethodSpec, MDTableType::Module, MDTableType::Module]),
-            MDColumnType::HasFieldMarshal => CodedToken::new(1, vec![MDTableType::Field, MDTableType::Param]),
-            MDColumnType::HasDeclSecurity => CodedToken::new(2, vec![MDTableType::TypeDef, MDTableType::Method, MDTableType::Assembly]),
-            MDColumnType::MemberRefParent => CodedToken::new(3, vec![MDTableType::TypeDef, MDTableType::TypeRef, MDTableType::ModuleRef, MDTableType::Method, MDTableType::TypeSpec]),
-            MDColumnType::HasSemantic => CodedToken::new(1, vec![MDTableType::Event, MDTableType::Property]),
-            MDColumnType::MethodDefOrRef => CodedToken::new(1, vec![MDTableType::Method, MDTableType::MemberRef]),
-            MDColumnType::MemberForwarded => CodedToken::new(1, vec![MDTableType::Field, MDTableType::Method]),
-            MDColumnType::Implementation => CodedToken::new(2, vec![MDTableType::File, MDTableType::AssemblyRef, MDTableType::ExportedType]),
-            MDColumnType::CustomAttributeType => CodedToken::new(3, vec![MDTableType::Module, MDTableType::Module, MDTableType::Method, MDTableType::MemberRef]),
-            MDColumnType::ResolutionScope => CodedToken::new(2, vec![MDTableType::Module, MDTableType::ModuleRef, MDTableType::AssemblyRef, MDTableType::TypeRef]),
-            MDColumnType::TypeOrMethodDef => CodedToken::new(1, vec![MDTableType::TypeDef, MDTableType::Method]),
-            MDColumnType::HasCustomDebugInformation => CodedToken::new(5, vec![MDTableType::Method, MDTableType::Field, MDTableType::TypeRef, MDTableType::TypeDef, MDTableType::Param, MDTableType::InterfaceImpl, MDTableType::MemberRef, MDTableType::Module, MDTableType::DeclSecurity, MDTableType::Property, MDTableType::Event, MDTableType::StandAloneSig, MDTableType::ModuleRef, MDTableType::TypeSpec, MDTableType::Assembly, MDTableType::AssemblyRef, MDTableType::File, MDTableType::ExportedType, MDTableType::ManifestResource, MDTableType::GenericParam, MDTableType::GenericParamConstraint, MDTableType::MethodSpec, MDTableType::Document, MDTableType::LocalScope, MDTableType::LocalVariable, MDTableType::LocalConstant, MDTableType::ImportScope]),
+            MDType::TypeDefOrRef => CodedToken::new(2, vec![MDTableType::TypeDef, MDTableType::TypeRef, MDTableType::TypeSpec]),
+            MDType::HasConstant => CodedToken::new(2, vec![MDTableType::Field, MDTableType::Param, MDTableType::Property]),
+            MDType::HasCustomAttribute => CodedToken::new(5, vec![MDTableType::Method, MDTableType::Field, MDTableType::TypeRef, MDTableType::TypeDef, MDTableType::Param, MDTableType::InterfaceImpl, MDTableType::MemberRef, MDTableType::Module, MDTableType::DeclSecurity, MDTableType::Property, MDTableType::Event, MDTableType::StandAloneSig, MDTableType::ModuleRef, MDTableType::TypeSpec, MDTableType::Assembly, MDTableType::AssemblyRef, MDTableType::File, MDTableType::ExportedType, MDTableType::ManifestResource, MDTableType::GenericParam, MDTableType::GenericParamConstraint, MDTableType::MethodSpec, MDTableType::Module, MDTableType::Module]),
+            MDType::HasFieldMarshal => CodedToken::new(1, vec![MDTableType::Field, MDTableType::Param]),
+            MDType::HasDeclSecurity => CodedToken::new(2, vec![MDTableType::TypeDef, MDTableType::Method, MDTableType::Assembly]),
+            MDType::MemberRefParent => CodedToken::new(3, vec![MDTableType::TypeDef, MDTableType::TypeRef, MDTableType::ModuleRef, MDTableType::Method, MDTableType::TypeSpec]),
+            MDType::HasSemantic => CodedToken::new(1, vec![MDTableType::Event, MDTableType::Property]),
+            MDType::MethodDefOrRef => CodedToken::new(1, vec![MDTableType::Method, MDTableType::MemberRef]),
+            MDType::MemberForwarded => CodedToken::new(1, vec![MDTableType::Field, MDTableType::Method]),
+            MDType::Implementation => CodedToken::new(2, vec![MDTableType::File, MDTableType::AssemblyRef, MDTableType::ExportedType]),
+            MDType::CustomAttributeType => CodedToken::new(3, vec![MDTableType::Module, MDTableType::Module, MDTableType::Method, MDTableType::MemberRef]),
+            MDType::ResolutionScope => CodedToken::new(2, vec![MDTableType::Module, MDTableType::ModuleRef, MDTableType::AssemblyRef, MDTableType::TypeRef]),
+            MDType::TypeOrMethodDef => CodedToken::new(1, vec![MDTableType::TypeDef, MDTableType::Method]),
+            MDType::HasCustomDebugInformation => CodedToken::new(5, vec![MDTableType::Method, MDTableType::Field, MDTableType::TypeRef, MDTableType::TypeDef, MDTableType::Param, MDTableType::InterfaceImpl, MDTableType::MemberRef, MDTableType::Module, MDTableType::DeclSecurity, MDTableType::Property, MDTableType::Event, MDTableType::StandAloneSig, MDTableType::ModuleRef, MDTableType::TypeSpec, MDTableType::Assembly, MDTableType::AssemblyRef, MDTableType::File, MDTableType::ExportedType, MDTableType::ManifestResource, MDTableType::GenericParam, MDTableType::GenericParamConstraint, MDTableType::MethodSpec, MDTableType::Document, MDTableType::LocalScope, MDTableType::LocalVariable, MDTableType::LocalConstant, MDTableType::ImportScope]),
             _ => panic!("Invalid column size"),
         }
     }

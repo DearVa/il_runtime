@@ -1,3 +1,4 @@
+use num_traits::FromPrimitive;
 use num_derive::FromPrimitive;
 use std::convert::TryInto;
 use std::fmt;
@@ -118,8 +119,8 @@ pub enum MDTableType {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MDColumnType {
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum MDType {
     	/// RID into Module table
 		Module,
 		/// RID into TypeRef table
@@ -275,7 +276,7 @@ pub enum MDColumnType {
 pub struct MDColumn {
     pub name: &'static str,
     /// 列的类型
-    pub column_type: MDColumnType,
+    pub column_type: MDType,
     /// 列数据类型的字节大小
     pub size: u8,
     /// 在该行中的偏移量
@@ -287,7 +288,7 @@ pub struct MDColumn {
 }
 
 impl MDColumn {
-    pub fn new(index: u8, name: &'static str, column_size: MDColumnType) -> MDColumn {
+    pub fn new(index: u8, name: &'static str, column_size: MDType) -> MDColumn {
         MDColumn {
             index,
             name,
@@ -545,17 +546,17 @@ impl TableStream {
         })
     }
 
-    fn get_col_size(big_strings: bool, big_guid: bool, big_blob: bool, column_size: MDColumnType, row_counts: &[u32]) -> u8 {
-        if column_size >= MDColumnType::Module && column_size <= MDColumnType::CustomDebugInformation {
-            let table_index = column_size as usize - MDColumnType::Module as usize;
+    fn get_col_size(big_strings: bool, big_guid: bool, big_blob: bool, column_size: MDType, row_counts: &[u32]) -> u8 {
+        if column_size >= MDType::Module && column_size <= MDType::CustomDebugInformation {
+            let table_index = column_size as usize - MDType::Module as usize;
             if table_index >= row_counts.len() || row_counts[table_index] <= 0xFFFF {
                 return 2;
             } else {
                 return 4;
             }
         }
-        if column_size >= MDColumnType::TypeDefOrRef && column_size <= MDColumnType::HasCustomDebugInformation {
-            let info = CodedToken::from_column_size(column_size);
+        if column_size >= MDType::TypeDefOrRef && column_size <= MDType::HasCustomDebugInformation {
+            let info = CodedToken::from_md_type(column_size);
             let mut max_rows: u32 = 0;
             for table_type in info.table_types.iter() {
                 let table_index = *table_type as usize;
@@ -578,26 +579,26 @@ impl TableStream {
             }
         }
         match column_size {
-            MDColumnType::Byte => 1,
-            MDColumnType::Int16 => 2,
-            MDColumnType::UInt16 => 2,
-            MDColumnType::Int32 => 4,
-            MDColumnType::UInt32 => 4,
-            MDColumnType::Strings => {
+            MDType::Byte => 1,
+            MDType::Int16 => 2,
+            MDType::UInt16 => 2,
+            MDType::Int32 => 4,
+            MDType::UInt32 => 4,
+            MDType::Strings => {
                 if big_strings {
                     4
                 } else {
                     2
                 }
             },
-            MDColumnType::GUID => {
+            MDType::GUID => {
                 if big_guid {
                     4
                 } else {
                     2
                 }
             },
-            MDColumnType::Blob => {
+            MDType::Blob => {
                 if big_blob {
                     4
                 } else {
@@ -618,375 +619,375 @@ impl TableStream {
             MDTableType::Module,
             "Module",
             vec![
-                MDColumn::new(0, "Generation", MDColumnType::UInt16),
-                MDColumn::new(1, "Name", MDColumnType::Strings),
-                MDColumn::new(2, "Mvid", MDColumnType::GUID),
-                MDColumn::new(3, "EncId", MDColumnType::GUID),
-                MDColumn::new(4, "EncBaseId", MDColumnType::GUID),
+                MDColumn::new(0, "Generation", MDType::UInt16),
+                MDColumn::new(1, "Name", MDType::Strings),
+                MDColumn::new(2, "Mvid", MDType::GUID),
+                MDColumn::new(3, "EncId", MDType::GUID),
+                MDColumn::new(4, "EncBaseId", MDType::GUID),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::TypeRef,
             "TypeRef",
             vec![
-                MDColumn::new(0, "ResolutionScope", MDColumnType::ResolutionScope),
-                MDColumn::new(1, "Name", MDColumnType::Strings),
-                MDColumn::new(2, "Namespace", MDColumnType::Strings),
+                MDColumn::new(0, "ResolutionScope", MDType::ResolutionScope),
+                MDColumn::new(1, "Name", MDType::Strings),
+                MDColumn::new(2, "Namespace", MDType::Strings),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::TypeDef,
             "TypeDef",
             vec![
-                MDColumn::new(0, "Flags", MDColumnType::UInt32),
-                MDColumn::new(1, "Name", MDColumnType::Strings),
-                MDColumn::new(2, "Namespace", MDColumnType::Strings),
-                MDColumn::new(3, "Extends", MDColumnType::TypeDefOrRef),
-                MDColumn::new(4, "FieldList", MDColumnType::Field),
-                MDColumn::new(5, "MethodList", MDColumnType::Method),
+                MDColumn::new(0, "Flags", MDType::UInt32),
+                MDColumn::new(1, "Name", MDType::Strings),
+                MDColumn::new(2, "Namespace", MDType::Strings),
+                MDColumn::new(3, "Extends", MDType::TypeDefOrRef),
+                MDColumn::new(4, "FieldList", MDType::Field),
+                MDColumn::new(5, "MethodList", MDType::Method),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::FieldPtr,
             "FieldPtr",
             vec![
-                MDColumn::new(0, "Field", MDColumnType::Field),
+                MDColumn::new(0, "Field", MDType::Field),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::Field,
             "Field",
             vec![
-                MDColumn::new(0, "Flags", MDColumnType::UInt16),
-                MDColumn::new(1, "Name", MDColumnType::Strings),
-                MDColumn::new(2, "Signature", MDColumnType::Blob),
+                MDColumn::new(0, "Flags", MDType::UInt16),
+                MDColumn::new(1, "Name", MDType::Strings),
+                MDColumn::new(2, "Signature", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::MethodPtr,
             "MethodPtr",
             vec![
-                MDColumn::new(0, "Method", MDColumnType::Method),
+                MDColumn::new(0, "Method", MDType::Method),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::Method,
             "Method",
             vec![
-                MDColumn::new(0, "RVA", MDColumnType::UInt32),
-                MDColumn::new(1, "ImplFlags", MDColumnType::UInt16),
-                MDColumn::new(2, "Flags", MDColumnType::UInt16),
-                MDColumn::new(3, "Name", MDColumnType::Strings),
-                MDColumn::new(4, "Signature", MDColumnType::Blob),
-                MDColumn::new(5, "ParamList", MDColumnType::Param),
+                MDColumn::new(0, "RVA", MDType::UInt32),
+                MDColumn::new(1, "ImplFlags", MDType::UInt16),
+                MDColumn::new(2, "Flags", MDType::UInt16),
+                MDColumn::new(3, "Name", MDType::Strings),
+                MDColumn::new(4, "Signature", MDType::Blob),
+                MDColumn::new(5, "ParamList", MDType::Param),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ParamPtr,
             "ParamPtr",
             vec![
-                MDColumn::new(0, "Param", MDColumnType::Param),
+                MDColumn::new(0, "Param", MDType::Param),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::Param,
             "Param",
             vec![
-                MDColumn::new(0, "Flags", MDColumnType::UInt16),
-                MDColumn::new(1, "Sequence", MDColumnType::UInt16),
-                MDColumn::new(2, "Name", MDColumnType::Strings),
+                MDColumn::new(0, "Flags", MDType::UInt16),
+                MDColumn::new(1, "Sequence", MDType::UInt16),
+                MDColumn::new(2, "Name", MDType::Strings),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::InterfaceImpl,
             "InterfaceImpl",
             vec![
-                MDColumn::new(0, "Class", MDColumnType::TypeDef),
-                MDColumn::new(1, "Interface", MDColumnType::TypeDefOrRef),
+                MDColumn::new(0, "Class", MDType::TypeDef),
+                MDColumn::new(1, "Interface", MDType::TypeDefOrRef),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::MemberRef,
             "MemberRef",
             vec![
-                MDColumn::new(0, "Class", MDColumnType::MemberRefParent),
-                MDColumn::new(1, "Name", MDColumnType::Strings),
-                MDColumn::new(2, "Signature", MDColumnType::Blob),
+                MDColumn::new(0, "Class", MDType::MemberRefParent),
+                MDColumn::new(1, "Name", MDType::Strings),
+                MDColumn::new(2, "Signature", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::Constant,
             "Constant",
             vec![
-                MDColumn::new(0, "Type", MDColumnType::Byte),
-                MDColumn::new(1, "Padding", MDColumnType::Byte),
-                MDColumn::new(2, "Parent", MDColumnType::HasConstant),
-                MDColumn::new(3, "Value", MDColumnType::Blob),
+                MDColumn::new(0, "Type", MDType::Byte),
+                MDColumn::new(1, "Padding", MDType::Byte),
+                MDColumn::new(2, "Parent", MDType::HasConstant),
+                MDColumn::new(3, "Value", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::CustomAttribute,
             "CustomAttribute",
             vec![
-                MDColumn::new(0, "Parent", MDColumnType::HasCustomAttribute),
-                MDColumn::new(1, "Type", MDColumnType::CustomAttributeType),
-                MDColumn::new(2, "Value", MDColumnType::Blob),
+                MDColumn::new(0, "Parent", MDType::HasCustomAttribute),
+                MDColumn::new(1, "Type", MDType::CustomAttributeType),
+                MDColumn::new(2, "Value", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::FieldMarshal,
             "FieldMarshal",
             vec![
-                MDColumn::new(0, "Parent", MDColumnType::HasFieldMarshal),
-                MDColumn::new(1, "NativeType", MDColumnType::Blob),
+                MDColumn::new(0, "Parent", MDType::HasFieldMarshal),
+                MDColumn::new(1, "NativeType", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::DeclSecurity,
             "DeclSecurity",
             vec![
-                MDColumn::new(0, "Action", MDColumnType::UInt16),
-                MDColumn::new(1, "Parent", MDColumnType::HasDeclSecurity),
-                MDColumn::new(2, "PermissionSet", MDColumnType::Blob),
+                MDColumn::new(0, "Action", MDType::UInt16),
+                MDColumn::new(1, "Parent", MDType::HasDeclSecurity),
+                MDColumn::new(2, "PermissionSet", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ClassLayout,
             "ClassLayout",
             vec![
-                MDColumn::new(0, "PackingSize", MDColumnType::UInt16),
-                MDColumn::new(1, "ClassSize", MDColumnType::UInt32),
-                MDColumn::new(2, "Parent", MDColumnType::TypeDef),
+                MDColumn::new(0, "PackingSize", MDType::UInt16),
+                MDColumn::new(1, "ClassSize", MDType::UInt32),
+                MDColumn::new(2, "Parent", MDType::TypeDef),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::FieldLayout,
             "FieldLayout",
             vec![
-                MDColumn::new(0, "OffSet", MDColumnType::UInt32),
-                MDColumn::new(1, "Field", MDColumnType::Field),
+                MDColumn::new(0, "OffSet", MDType::UInt32),
+                MDColumn::new(1, "Field", MDType::Field),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::StandAloneSig,
             "StandAloneSig",
             vec![
-                MDColumn::new(0, "Signature", MDColumnType::Blob),
+                MDColumn::new(0, "Signature", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::EventMap,
             "EventMap",
             vec![
-                MDColumn::new(0, "Parent", MDColumnType::TypeDef),
-                MDColumn::new(1, "EventList", MDColumnType::Event),
+                MDColumn::new(0, "Parent", MDType::TypeDef),
+                MDColumn::new(1, "EventList", MDType::Event),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::EventPtr,
             "EventPtr",
             vec![
-                MDColumn::new(0, "Event", MDColumnType::Event),
+                MDColumn::new(0, "Event", MDType::Event),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::Event,
             "Event",
             vec![
-                MDColumn::new(0, "EventFlags", MDColumnType::UInt16),
-                MDColumn::new(1, "Name", MDColumnType::Strings),
-                MDColumn::new(2, "EventType", MDColumnType::TypeDefOrRef),
+                MDColumn::new(0, "EventFlags", MDType::UInt16),
+                MDColumn::new(1, "Name", MDType::Strings),
+                MDColumn::new(2, "EventType", MDType::TypeDefOrRef),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::PropertyMap,
             "PropertyMap",
             vec![
-                MDColumn::new(0, "Parent", MDColumnType::TypeDef),
-                MDColumn::new(1, "PropertyList", MDColumnType::Property),
+                MDColumn::new(0, "Parent", MDType::TypeDef),
+                MDColumn::new(1, "PropertyList", MDType::Property),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::PropertyPtr,
             "PropertyPtr",
             vec![
-                MDColumn::new(0, "Property", MDColumnType::Property),
+                MDColumn::new(0, "Property", MDType::Property),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::Property,
             "Property",
             vec![
-                MDColumn::new(0, "PropFlags", MDColumnType::UInt16),
-                MDColumn::new(1, "Name", MDColumnType::Strings),
-                MDColumn::new(2, "Type", MDColumnType::Blob),
+                MDColumn::new(0, "PropFlags", MDType::UInt16),
+                MDColumn::new(1, "Name", MDType::Strings),
+                MDColumn::new(2, "Type", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::MethodSemantics,
             "MethodSemantics",
             vec![
-                MDColumn::new(0, "Semantics", MDColumnType::UInt16),
-                MDColumn::new(1, "Method", MDColumnType::Method),
-                MDColumn::new(2, "Association", MDColumnType::HasSemantic),
+                MDColumn::new(0, "Semantics", MDType::UInt16),
+                MDColumn::new(1, "Method", MDType::Method),
+                MDColumn::new(2, "Association", MDType::HasSemantic),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::MethodImpl,
             "MethodImpl",
             vec![
-                MDColumn::new(0, "Class", MDColumnType::TypeDef),
-                MDColumn::new(1, "MethodBody", MDColumnType::MethodDefOrRef),
-                MDColumn::new(2, "MethodDecl", MDColumnType::MethodDefOrRef),
+                MDColumn::new(0, "Class", MDType::TypeDef),
+                MDColumn::new(1, "MethodBody", MDType::MethodDefOrRef),
+                MDColumn::new(2, "MethodDecl", MDType::MethodDefOrRef),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ModuleRef,
             "ModuleRef",
             vec![
-                MDColumn::new(0, "Name", MDColumnType::Strings),
+                MDColumn::new(0, "Name", MDType::Strings),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::TypeSpec,
             "TypeSpec",
             vec![
-                MDColumn::new(0, "Signature", MDColumnType::Blob),
+                MDColumn::new(0, "Signature", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ImplMap,
             "ImplMap",
             vec![
-                MDColumn::new(0, "MappingFlags", MDColumnType::UInt16),
-                MDColumn::new(1, "MemberForwarded", MDColumnType::MemberForwarded),
-                MDColumn::new(2, "ImportName", MDColumnType::Strings),
-                MDColumn::new(3, "ImportScope", MDColumnType::ModuleRef),
+                MDColumn::new(0, "MappingFlags", MDType::UInt16),
+                MDColumn::new(1, "MemberForwarded", MDType::MemberForwarded),
+                MDColumn::new(2, "ImportName", MDType::Strings),
+                MDColumn::new(3, "ImportScope", MDType::ModuleRef),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::FieldRVA,
             "FieldRVA",
             vec![
-                MDColumn::new(0, "RVA", MDColumnType::UInt32),
-                MDColumn::new(1, "Field", MDColumnType::Field),
+                MDColumn::new(0, "RVA", MDType::UInt32),
+                MDColumn::new(1, "Field", MDType::Field),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ENCLog,
             "ENCLog",
             vec![
-                MDColumn::new(0, "Token", MDColumnType::UInt32),
-                MDColumn::new(1, "FuncCode", MDColumnType::UInt32),
+                MDColumn::new(0, "Token", MDType::UInt32),
+                MDColumn::new(1, "FuncCode", MDType::UInt32),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ENCMap,
             "ENCMap",
             vec![
-                MDColumn::new(0, "Token", MDColumnType::UInt32),
+                MDColumn::new(0, "Token", MDType::UInt32),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::Assembly,
             "Assembly",
             vec![
-                MDColumn::new(0, "HashAlgId", MDColumnType::UInt32),
-                MDColumn::new(1, "MajorVersion", MDColumnType::UInt16),
-                MDColumn::new(2, "MinorVersion", MDColumnType::UInt16),
-                MDColumn::new(3, "BuildNumber", MDColumnType::UInt16),
-                MDColumn::new(4, "RevisionNumber", MDColumnType::UInt16),
-                MDColumn::new(5, "Flags", MDColumnType::UInt32),
-                MDColumn::new(6, "PublicKey", MDColumnType::Blob),
-                MDColumn::new(7, "Name", MDColumnType::Strings),
-                MDColumn::new(8, "Locale", MDColumnType::Strings),
+                MDColumn::new(0, "HashAlgId", MDType::UInt32),
+                MDColumn::new(1, "MajorVersion", MDType::UInt16),
+                MDColumn::new(2, "MinorVersion", MDType::UInt16),
+                MDColumn::new(3, "BuildNumber", MDType::UInt16),
+                MDColumn::new(4, "RevisionNumber", MDType::UInt16),
+                MDColumn::new(5, "Flags", MDType::UInt32),
+                MDColumn::new(6, "PublicKey", MDType::Blob),
+                MDColumn::new(7, "Name", MDType::Strings),
+                MDColumn::new(8, "Locale", MDType::Strings),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::AssemblyProcessor,
             "AssemblyProcessor",
             vec![
-                MDColumn::new(0, "Processor", MDColumnType::UInt32),
+                MDColumn::new(0, "Processor", MDType::UInt32),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::AssemblyOS,
             "AssemblyOS",
             vec![
-                MDColumn::new(0, "OSPlatformId", MDColumnType::UInt32),
-                MDColumn::new(1, "OSMajorVersion", MDColumnType::UInt32),
-                MDColumn::new(2, "OSMinorVersion", MDColumnType::UInt32),
+                MDColumn::new(0, "OSPlatformId", MDType::UInt32),
+                MDColumn::new(1, "OSMajorVersion", MDType::UInt32),
+                MDColumn::new(2, "OSMinorVersion", MDType::UInt32),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::AssemblyRef,
             "AssemblyRef",
             vec![
-                MDColumn::new(0, "MajorVersion", MDColumnType::UInt16),
-                MDColumn::new(1, "MinorVersion", MDColumnType::UInt16),
-                MDColumn::new(2, "BuildNumber", MDColumnType::UInt16),
-                MDColumn::new(3, "RevisionNumber", MDColumnType::UInt16),
-                MDColumn::new(4, "Flags", MDColumnType::UInt32),
-                MDColumn::new(5, "PublicKeyOrToken", MDColumnType::Blob),
-                MDColumn::new(6, "Name", MDColumnType::Strings),
-                MDColumn::new(7, "Locale", MDColumnType::Strings),
-                MDColumn::new(8, "HashValue", MDColumnType::Blob),
+                MDColumn::new(0, "MajorVersion", MDType::UInt16),
+                MDColumn::new(1, "MinorVersion", MDType::UInt16),
+                MDColumn::new(2, "BuildNumber", MDType::UInt16),
+                MDColumn::new(3, "RevisionNumber", MDType::UInt16),
+                MDColumn::new(4, "Flags", MDType::UInt32),
+                MDColumn::new(5, "PublicKeyOrToken", MDType::Blob),
+                MDColumn::new(6, "Name", MDType::Strings),
+                MDColumn::new(7, "Locale", MDType::Strings),
+                MDColumn::new(8, "HashValue", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::AssemblyRefProcessor,
             "AssemblyRefProcessor",
             vec![
-                MDColumn::new(0, "Processor", MDColumnType::UInt32),
-                MDColumn::new(1, "AssemblyRef", MDColumnType::AssemblyRef),
+                MDColumn::new(0, "Processor", MDType::UInt32),
+                MDColumn::new(1, "AssemblyRef", MDType::AssemblyRef),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::AssemblyRefOS,
             "AssemblyRefOS",
             vec![
-                MDColumn::new(0, "OSPlatformId", MDColumnType::UInt32),
-                MDColumn::new(1, "OSMajorVersion", MDColumnType::UInt32),
-                MDColumn::new(2, "OSMinorVersion", MDColumnType::UInt32),
-                MDColumn::new(3, "AssemblyRef", MDColumnType::AssemblyRef),
+                MDColumn::new(0, "OSPlatformId", MDType::UInt32),
+                MDColumn::new(1, "OSMajorVersion", MDType::UInt32),
+                MDColumn::new(2, "OSMinorVersion", MDType::UInt32),
+                MDColumn::new(3, "AssemblyRef", MDType::AssemblyRef),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::File,
             "File",
             vec![
-                MDColumn::new(0, "Flags", MDColumnType::UInt32),
-                MDColumn::new(1, "Name", MDColumnType::Strings),
-                MDColumn::new(2, "HashValue", MDColumnType::Blob),
+                MDColumn::new(0, "Flags", MDType::UInt32),
+                MDColumn::new(1, "Name", MDType::Strings),
+                MDColumn::new(2, "HashValue", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ExportedType,
             "ExportedType",
             vec![
-                MDColumn::new(0, "Flags", MDColumnType::UInt32),
-                MDColumn::new(1, "TypeDefId", MDColumnType::UInt32),
-                MDColumn::new(2, "TypeName", MDColumnType::Strings),
-                MDColumn::new(3, "TypeNamespace", MDColumnType::Strings),
-                MDColumn::new(4, "Implementation", MDColumnType::Implementation),
+                MDColumn::new(0, "Flags", MDType::UInt32),
+                MDColumn::new(1, "TypeDefId", MDType::UInt32),
+                MDColumn::new(2, "TypeName", MDType::Strings),
+                MDColumn::new(3, "TypeNamespace", MDType::Strings),
+                MDColumn::new(4, "Implementation", MDType::Implementation),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ManifestResource,
             "ManifestResource",
             vec![
-                MDColumn::new(0, "Offset", MDColumnType::UInt32),
-                MDColumn::new(1, "Flags", MDColumnType::UInt32),
-                MDColumn::new(2, "Name", MDColumnType::Strings),
-                MDColumn::new(3, "Implementation", MDColumnType::Implementation),
+                MDColumn::new(0, "Offset", MDType::UInt32),
+                MDColumn::new(1, "Flags", MDType::UInt32),
+                MDColumn::new(2, "Name", MDType::Strings),
+                MDColumn::new(3, "Implementation", MDType::Implementation),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::NestedClass,
             "NestedClass",
             vec![
-                MDColumn::new(0, "NestedClass", MDColumnType::TypeDef),
-                MDColumn::new(1, "EnclosingClass", MDColumnType::TypeDef),
+                MDColumn::new(0, "NestedClass", MDType::TypeDef),
+                MDColumn::new(1, "EnclosingClass", MDType::TypeDef),
             ]
         ));
         if major_version == 1 && minor_version == 1 {
@@ -994,11 +995,11 @@ impl TableStream {
                 MDTableType::GenericParam,
                 "GenericParam",
                 vec![
-                    MDColumn::new(0, "Number", MDColumnType::UInt16),
-                    MDColumn::new(1, "Flags", MDColumnType::UInt16),
-                    MDColumn::new(2, "Owner", MDColumnType::TypeOrMethodDef),
-                    MDColumn::new(3, "Name", MDColumnType::Strings),
-                    MDColumn::new(4, "Kind", MDColumnType::TypeDefOrRef),
+                    MDColumn::new(0, "Number", MDType::UInt16),
+                    MDColumn::new(1, "Flags", MDType::UInt16),
+                    MDColumn::new(2, "Owner", MDType::TypeOrMethodDef),
+                    MDColumn::new(3, "Name", MDType::Strings),
+                    MDColumn::new(4, "Kind", MDType::TypeDefOrRef),
                 ]
             ));
         } else {
@@ -1006,10 +1007,10 @@ impl TableStream {
                 MDTableType::GenericParam,
                 "GenericParam",
                 vec![
-                    MDColumn::new(0, "Number", MDColumnType::UInt16),
-                    MDColumn::new(1, "Flags", MDColumnType::UInt16),
-                    MDColumn::new(2, "Owner", MDColumnType::TypeOrMethodDef),
-                    MDColumn::new(3, "Name", MDColumnType::Strings),
+                    MDColumn::new(0, "Number", MDType::UInt16),
+                    MDColumn::new(1, "Flags", MDType::UInt16),
+                    MDColumn::new(2, "Owner", MDType::TypeOrMethodDef),
+                    MDColumn::new(3, "Name", MDType::Strings),
                 ]
             ));
         }
@@ -1017,16 +1018,16 @@ impl TableStream {
             MDTableType::MethodSpec,
             "MethodSpec",
             vec![
-                MDColumn::new(0, "Method", MDColumnType::MethodDefOrRef),
-                MDColumn::new(1, "Instantiation", MDColumnType::Blob),
+                MDColumn::new(0, "Method", MDType::MethodDefOrRef),
+                MDColumn::new(1, "Instantiation", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::GenericParamConstraint,
             "GenericParamConstraint",
             vec![
-                MDColumn::new(0, "Owner", MDColumnType::GenericParam),
-                MDColumn::new(1, "Constraint", MDColumnType::TypeDefOrRef),
+                MDColumn::new(0, "Owner", MDType::GenericParam),
+                MDColumn::new(1, "Constraint", MDType::TypeDefOrRef),
             ]
         ));
         tables.push(MDTable::new(MDTableType::X2D, "", vec![]));
@@ -1036,72 +1037,72 @@ impl TableStream {
             MDTableType::Document,
             "Document",
             vec![
-                MDColumn::new(0, "Name", MDColumnType::Blob),
-                MDColumn::new(1, "HashAlgorithm", MDColumnType::GUID),
-                MDColumn::new(2, "Hash", MDColumnType::Blob),
-                MDColumn::new(3, "Language", MDColumnType::GUID),
+                MDColumn::new(0, "Name", MDType::Blob),
+                MDColumn::new(1, "HashAlgorithm", MDType::GUID),
+                MDColumn::new(2, "Hash", MDType::Blob),
+                MDColumn::new(3, "Language", MDType::GUID),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::MethodDebugInformation,
             "MethodDebugInformation",
             vec![
-                MDColumn::new(0, "Document", MDColumnType::Document),
-                MDColumn::new(1, "SequencePoints", MDColumnType::Blob),
+                MDColumn::new(0, "Document", MDType::Document),
+                MDColumn::new(1, "SequencePoints", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::LocalScope,
             "LocalScope",
             vec![
-                MDColumn::new(0, "Method", MDColumnType::Method),
-                MDColumn::new(1, "ImportScope", MDColumnType::ImportScope),
-                MDColumn::new(2, "VariableList", MDColumnType::LocalVariable),
-                MDColumn::new(3, "ConstantList", MDColumnType::LocalConstant),
-                MDColumn::new(4, "StartOffset", MDColumnType::UInt32),
-                MDColumn::new(5, "Length", MDColumnType::UInt32),
+                MDColumn::new(0, "Method", MDType::Method),
+                MDColumn::new(1, "ImportScope", MDType::ImportScope),
+                MDColumn::new(2, "VariableList", MDType::LocalVariable),
+                MDColumn::new(3, "ConstantList", MDType::LocalConstant),
+                MDColumn::new(4, "StartOffset", MDType::UInt32),
+                MDColumn::new(5, "Length", MDType::UInt32),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::LocalVariable,
             "LocalVariable",
             vec![
-                MDColumn::new(0, "Attributes", MDColumnType::UInt16),
-                MDColumn::new(1, "Index", MDColumnType::UInt16),
-                MDColumn::new(2, "Name", MDColumnType::Strings),
+                MDColumn::new(0, "Attributes", MDType::UInt16),
+                MDColumn::new(1, "Index", MDType::UInt16),
+                MDColumn::new(2, "Name", MDType::Strings),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::LocalConstant,
             "LocalConstant",
             vec![
-                MDColumn::new(0, "Name", MDColumnType::Strings),
-                MDColumn::new(1, "Signature", MDColumnType::Blob),
+                MDColumn::new(0, "Name", MDType::Strings),
+                MDColumn::new(1, "Signature", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::ImportScope,
             "ImportScope",
             vec![
-                MDColumn::new(0, "Parent", MDColumnType::ImportScope),
-                MDColumn::new(1, "Imports", MDColumnType::Blob),
+                MDColumn::new(0, "Parent", MDType::ImportScope),
+                MDColumn::new(1, "Imports", MDType::Blob),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::StateMachineMethod,
             "StateMachineMethod",
             vec![
-                MDColumn::new(0, "MoveNextMethod", MDColumnType::Method),
-                MDColumn::new(1, "KickoffMethod", MDColumnType::Method),
+                MDColumn::new(0, "MoveNextMethod", MDType::Method),
+                MDColumn::new(1, "KickoffMethod", MDType::Method),
             ]
         ));
         tables.push(MDTable::new(
             MDTableType::CustomDebugInformation,
             "CustomDebugInformation",
             vec![
-                MDColumn::new(0, "Parent", MDColumnType::HasCustomDebugInformation),
-                MDColumn::new(1, "Kind", MDColumnType::GUID),
-                MDColumn::new(2, "Value", MDColumnType::Blob),
+                MDColumn::new(0, "Parent", MDType::HasCustomDebugInformation),
+                MDColumn::new(1, "Kind", MDType::GUID),
+                MDColumn::new(2, "Value", MDType::Blob),
             ]
         ));
 

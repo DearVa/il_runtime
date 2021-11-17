@@ -321,15 +321,19 @@ impl Metadata {
         }
         RidList::create(start_rid, end_rid - start_rid)
     }
-
-    pub fn get_param_rid_list(&self, src_rid: u32) -> RidList {
-        Metadata::get_rid_list(&self.table_stream.md_tables[6], src_rid, 5, &self.table_stream.md_tables[8])
+    
+    pub fn get_field_rid_list(&self, src_rid: u32) -> RidList {
+        Metadata::get_rid_list(&self.table_stream.md_tables[2], src_rid, 4, &self.table_stream.md_tables[4])
     }
-
+    
     pub fn get_method_rid_list(&self, src_rid: u32) -> RidList {
         Metadata::get_rid_list(&self.table_stream.md_tables[2], src_rid, 5, &self.table_stream.md_tables[6])
     }
-
+    
+    pub fn get_param_rid_list(&self, src_rid: u32) -> RidList {
+        Metadata::get_rid_list(&self.table_stream.md_tables[6], src_rid, 5, &self.table_stream.md_tables[8])
+    }
+    
     pub fn get_us_string(&self, signature: u32) -> io::Result<String> {
         if (signature >> 24) != 0x70 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid US signature"));
@@ -338,7 +342,7 @@ impl Metadata {
     }
 
     pub fn resolve_member_ref(&self, coded_token: u32) -> Option<u32> {
-        let member_ref_token = CodedToken::from_column_size(MDColumnType::MemberRefParent);
+        let member_ref_token = CodedToken::from_md_type(MDType::MemberRefParent);
         match member_ref_token.decode(coded_token) {
             None => None,
             Some(token) => {
@@ -348,7 +352,7 @@ impl Metadata {
     }
 
     pub fn resolve_resolution_scope(&self, coded_token: u32) -> Option<u32> {
-        let resolution_scope_token = CodedToken::from_column_size(MDColumnType::ResolutionScope);
+        let resolution_scope_token = CodedToken::from_md_type(MDType::ResolutionScope);
         match resolution_scope_token.decode(coded_token) {
             None => None,
             Some(token) => {

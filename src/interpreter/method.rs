@@ -1,8 +1,7 @@
-use std::{fmt::{self, Debug, Display, Formatter}, io};
+use std::io;
 
-use crate::interpreter::CallingConventionSig;
-
-use super::{data_reader::DataReader, metadata::*, RidList};
+use crate::interpreter::{CallingConventionSig, metadata::md_token::MDToken};
+use super::{Assembly, RidList, data_reader::DataReader, metadata::*};
 
 pub struct Method {
     pub token: u32,                 // 形如0x06000001
@@ -13,12 +12,12 @@ pub struct Method {
     pub name: String,               // 方法名
     pub signature: Option<CallingConventionSig>, // 签名
     pub param_list: RidList,        // 参数列表，对应ParamTable
-    pub owner_type: u32,            // 方法所属类型，加上0x06000001就是对应的方法
+    pub owner_type: u32,            // 方法所属类型，加上0x02000001就是对应的类型
 
     pub max_stack: u16,             // 最大堆栈大小
     pub header_size: u8,            // 方法头大小
     pub code_size: u32,             // 代码大小
-    pub local_var_sig_token: u32,   // 局部变量Signature
+    pub local_var_rid: u32,         // 局部变量Signature
 
     pub header_position: usize,     // MethodHeader在Image中的真实位置
     pub code_position: usize,       // IL指令在Image中的真实位置
@@ -30,10 +29,8 @@ impl Method {
         let method_table = &metadata.table_stream.md_tables[6];
         let mut type_map_index = 0;
         for row in 0..method_table.row_count {
-            let rid = row + 1;
-
             if type_map_index < method_to_type_map.len() {
-                while rid >= method_to_type_map[type_map_index] {
+                while row + 1 >= method_to_type_map[type_map_index] {
                     type_map_index += 1;
                     if type_map_index == method_to_type_map.len() {
                         break;
@@ -45,7 +42,7 @@ impl Method {
             let header_size: u8;
             let code_size: u32;
             let max_stack: u16;
-            let local_var_sig_token: u32;
+            let local_var_rid: u32;
             let header_position: usize;
 
             let rva = method_table.columns[0].get_cell_u32(row);  // RVA记录了方法具体实现的字节码位置
@@ -54,7 +51,7 @@ impl Method {
                 header_size = 0;
                 code_size = 0;
                 max_stack = 0;
-                local_var_sig_token = 0;
+                local_var_rid = 0;
                 header_position = 0;
             } else {
                 header_position = pe.rva_to_file_offset(rva);
@@ -66,7 +63,7 @@ impl Method {
                         flags = 2;
                         max_stack = 8;
                         code_size = (b >> 2) as u32;
-                        local_var_sig_token = 0;
+                        local_var_rid = 0;
                         header_size = 1;
                     },
                     3 => {  // Fat header. Can have locals and exception handlers
@@ -74,7 +71,7 @@ impl Method {
                         header_size = 4 * (flags >> 12) as u8;
                         max_stack = reader.read_u16()?;
                         code_size = reader.read_u32()?;
-                        local_var_sig_token = reader.read_u32()?;
+                        local_var_rid = MDToken::to_rid(reader.read_u32()?);
                         
                         // The CLR allows the code to start inside the method header. But if it does,
                         // the CLR doesn't read any exceptions.
@@ -104,7 +101,7 @@ impl Method {
                 max_stack,
                 header_size,
                 code_size,
-                local_var_sig_token,
+                local_var_rid,
 
                 header_position,
                 code_position: header_position + header_size as usize,
@@ -114,36 +111,33 @@ impl Method {
         Ok(methods)
     }
 
-    pub fn check_impl_flag_info(flag: u16, flag_info: ImplAttrFlagInfo) -> bool {
+    pub fn check_impl_flag_info(&self, flag_info: ImplAttrFlagInfo) -> bool {
         match flag_info {
             ImplAttrFlagInfo::CodeType(t) => {
-                flag & 0x0003 & (t as u16) != 0
+                self.impl_flags & 0x0003 & (t as u16) != 0
             },
             ImplAttrFlagInfo::Managed(m) => {
-                flag & 0x0004 & (m as u16) != 0
+                self.impl_flags & 0x0004 & (m as u16) != 0
             },
             ImplAttrFlagInfo::CommonImplAttrFlagInfo(c) => {
-                flag & (c as u16) != 0
+                self.impl_flags & (c as u16) != 0
             }
+        }
+    }
+
+    pub fn to_string(&self, assembly: &Assembly) -> String {
+        match &self.signature {
+            Some(CallingConventionSig::MethodSig(method)) => {
+                let owner_type = assembly.type_defs.index_get(self.owner_type as usize).unwrap();
+                let owner_type_full_name = owner_type.namespace.clone() + "." + &owner_type.name;
+                format!("{} {}.{}{}", method.get_ret_type_string(), owner_type_full_name, self.name, method.get_params_type_string())
+            },
+            _ => panic!("Not a method!")
         }
     }
 
     pub fn is_static(&self) -> bool {
         self.attributes & 0x10 != 0
-    }
-}
-
-impl Debug for Method {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match &self.signature {
-            Some(CallingConventionSig::MethodSig(method)) => {
-                write!(f, "{} {}{}", method.get_ret_type_string(), self.name, method.get_params_type_string())?;
-            },
-            _ => {
-                write!(f, "Method: {}", self.name)?;
-            },
-        }
-        Ok(())
     }
 }
 

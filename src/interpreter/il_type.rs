@@ -1,4 +1,8 @@
-use std::ops::{Add, Sub};
+use std::{cmp::Ordering, ops::{Add, BitAnd, BitOr, BitXor, Sub}};
+
+use crate::interpreter::type_sig::{CorLibType, TypeSig};
+
+use super::signature::CallingConventionSig;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ILValType {
@@ -14,6 +18,25 @@ pub enum ILValType {
     UInt64(u64),
     Short(i16),
     UShort(u16),
+}
+
+impl ILValType {
+    pub fn is_false_type(&self) -> bool {
+        match *self {
+            ILValType::Boolean(b) => b == false,
+            ILValType::Byte(b) => b == 0,
+            ILValType::SByte(b) => b == 0,
+            ILValType::Char(c) => c == '\0',
+            ILValType::Double(d) => d == 0.0,
+            ILValType::Single(f) => f == 0.0,
+            ILValType::Int32(i) => i == 0,
+            ILValType::UInt32(i) => i == 0,
+            ILValType::Int64(i) => i == 0,
+            ILValType::UInt64(i) => i == 0,
+            ILValType::Short(i) => i == 0,
+            ILValType::UShort(i) => i == 0,
+        }
+    }
 }
 
 impl ToString for ILValType {
@@ -70,6 +93,67 @@ impl ILType {
             _ => panic!("not a ref type"),
         }
     }
+
+    pub fn is_false_type(&self) -> bool {
+        match self {
+            ILType::Val(val) => val.is_false_type(),
+            ILType::Ref(r) => {
+                match r {
+                    ILRefType::Null => true,
+                    _ => false,
+                }
+            },
+            ILType::Ptr(p) => {
+                p.is_null()
+            },
+        }
+    }
+
+    pub fn from_type_sig(sig: &TypeSig) -> ILType {
+        match sig {
+            TypeSig::CorLibTypeSig(c) => {
+                match c {
+                    CorLibType::Void => panic!("field cannot be void"),
+                    CorLibType::Boolean => ILType::Val(ILValType::Boolean(false)),
+                    CorLibType::Byte => ILType::Val(ILValType::Byte(0)),
+                    CorLibType::SByte => ILType::Val(ILValType::SByte(0)),
+                    CorLibType::Char => ILType::Val(ILValType::Char('\0')),
+                    CorLibType::Double => ILType::Val(ILValType::Double(0.0)),
+                    CorLibType::Single => ILType::Val(ILValType::Single(0.0)),
+                    CorLibType::Int16 => ILType::Val(ILValType::Short(0)),
+                    CorLibType::UInt16 => ILType::Val(ILValType::UShort(0)),
+                    CorLibType::Int32 => ILType::Val(ILValType::Int32(0)),
+                    CorLibType::UInt32 => ILType::Val(ILValType::UInt32(0)),
+                    CorLibType::Int64 => ILType::Val(ILValType::Int64(0)),
+                    CorLibType::UInt64 => ILType::Val(ILValType::UInt64(0)),
+                    _ => ILType::Ref(ILRefType::Null),
+                }
+            },
+            _ => ILType::Ref(ILRefType::Null),
+        }
+    }
+
+    pub fn from_type_sigs(sigs: Vec<&TypeSig>) -> Vec<ILType> {
+        sigs.iter().map(|s| ILType::from_type_sig(s)).collect()
+    }
+
+    /// 从CallingConventionSig转换
+    pub fn from_signature(sig: &CallingConventionSig) -> ILType {
+        match sig {
+            CallingConventionSig::FieldSig(f) => {
+                if let Some(sig) = &f.type_sig {
+                    Self::from_type_sig(&sig)
+                } else {
+                    ILType::Ref(ILRefType::Null)
+                }
+            },
+            _ => panic!("not a field sig"),
+        }
+    }
+
+    pub fn from_signatures(sigs: Vec<&CallingConventionSig>) -> Vec<ILType> {
+        sigs.into_iter().map(ILType::from_signature).collect()
+    }
 }
 
 impl Add for ILType {
@@ -110,6 +194,74 @@ impl Sub for ILType {
                     (ILValType::Int64(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 - i2)),
                     (ILValType::Single(i1), ILValType::Single(i2)) => ILType::Val(ILValType::Single(i1 - i2)),
                     (ILValType::Double(i1), ILValType::Double(i2)) => ILType::Val(ILValType::Double(i1 - i2)),
+                    _ => panic!("Invalid Operation")
+                }
+            }
+            _ => panic!("Invalid Operation")
+        }
+    }
+}
+
+impl PartialOrd for ILType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (ILType::Val(v1), ILType::Val(v2)) => {
+                match (v1, v2) {
+                    (ILValType::Int32(i1), ILValType::Int32(i2)) => i1.partial_cmp(i2),
+                    (ILValType::Int64(i1), ILValType::Int64(i2)) => i1.partial_cmp(i2),
+                    (ILValType::Single(i1), ILValType::Single(i2)) => i1.partial_cmp(i2),
+                    (ILValType::Double(i1), ILValType::Double(i2)) => i1.partial_cmp(i2),
+                    _ => panic!("Invalid Operation")
+                }
+            }
+            _ => panic!("Invalid Operation")
+        }
+    }
+}
+
+impl BitAnd for ILType {
+    type Output = Self;
+
+    fn bitand(self, other: Self) -> Self {
+        match (self, other) {
+            (ILType::Val(v1), ILType::Val(v2)) => {
+                match (v1, v2) {
+                    (ILValType::Int32(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int32(i1 & i2)),
+                    (ILValType::Int64(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 & i2)),
+                    _ => panic!("Invalid Operation")
+                }
+            }
+            _ => panic!("Invalid Operation")
+        }
+    }
+}
+
+impl BitOr for ILType {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        match (self, other) {
+            (ILType::Val(v1), ILType::Val(v2)) => {
+                match (v1, v2) {
+                    (ILValType::Int32(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int32(i1 | i2)),
+                    (ILValType::Int64(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 | i2)),
+                    _ => panic!("Invalid Operation")
+                }
+            }
+            _ => panic!("Invalid Operation")
+        }
+    }
+}
+
+impl BitXor for ILType {
+    type Output = Self;
+
+    fn bitxor(self, other: Self) -> Self {
+        match (self, other) {
+            (ILType::Val(v1), ILType::Val(v2)) => {
+                match (v1, v2) {
+                    (ILValType::Int32(i1), ILValType::Int32(i2)) => ILType::Val(ILValType::Int32(i1 ^ i2)),
+                    (ILValType::Int64(i1), ILValType::Int64(i2)) => ILType::Val(ILValType::Int64(i1 ^ i2)),
                     _ => panic!("Invalid Operation")
                 }
             }

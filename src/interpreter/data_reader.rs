@@ -237,13 +237,6 @@ impl DataReader {
         Ok(())
     }
 
-    pub fn read_bytes_vec_exact(&mut self, length: usize) -> io::Result<Vec<u8>> {
-        let mut position = self.position;
-        let result = self.read_bytes_vec_exact_immut(&mut position, length);
-        self.position = position;
-        result
-    }
-
     pub fn read_bytes_vec_exact_immut(&self, position: &mut usize, length: usize) -> io::Result<Vec<u8>> {
         self.check_position(*position, length)?;
         let mut vec = Vec::with_capacity(length);

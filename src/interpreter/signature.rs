@@ -1,10 +1,6 @@
-use std::fmt::{Debug, Display, Error, Formatter};
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 use bitflags::bitflags;
 
-use super::{data_reader::DataReader, metadata::md_token::*, type_sig::TypeSig};
-use crate::interpreter::metadata::table_stream::{MDColumnType, MDTableType};
+use super::{data_reader::DataReader, type_sig::TypeSig};
 use super::metadata::Metadata;
 
 bitflags! {
@@ -76,12 +72,15 @@ impl CallingConventionSig {
             CallingConvention::FIELD => {
                 Self::read_field(calling_convention, &reader, offset)
             },
+            CallingConvention::LOCAL_SIG => {
+                Self::read_local_sig(calling_convention, &reader, offset)
+            },
             CallingConvention::PROPERTY => {
                 Self::read_property(calling_convention, &reader, offset)
             },
-            CallingConvention::LOCAL_SIG => {
+            CallingConvention::GENERIC_INST => {
                 todo!();
-                // Self::read_local_sig(calling_convention, &reader)
+                // Self::read_generic_inst(calling_convention, &reader, offset)
             },
             _=> None
         }
@@ -93,6 +92,15 @@ impl CallingConventionSig {
 
     fn read_field(calling_convention: CallingConvention, reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
         Some(CallingConventionSig::FieldSig(FieldSig::new(calling_convention, TypeSig::read_type(reader, offset))))
+    }
+
+    fn read_local_sig(calling_convention: CallingConvention, reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
+        let count =  reader.try_read_compressed_u32_immut(offset)?;
+        let mut sig = LocalSig::new(calling_convention, count as usize);
+        for _ in 0..count {
+            sig.locals.push(TypeSig::read_type(reader, offset).unwrap());
+        }
+        Some(CallingConventionSig::LocalSig(sig))
     }
 
     fn read_property(calling_convention: CallingConvention, reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
@@ -258,4 +266,13 @@ impl MethodSig {
 pub struct LocalSig {
     pub base: CallingConventionSigBase,
     pub locals: Vec<TypeSig>,
+}
+
+impl LocalSig {
+    pub fn new(calling_convention: CallingConvention, count: usize) -> LocalSig {
+        LocalSig {
+            base: CallingConventionSigBase::new(calling_convention),
+            locals: Vec::with_capacity(count),
+        }
+    }
 }

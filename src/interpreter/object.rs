@@ -1,6 +1,6 @@
 use std::{hash::{Hash, Hasher}, rc::Rc};
 
-use super::{Assembly, il_type::ILType};
+use super::{Assembly, Interpreter, il_type::ILType};
 
 pub struct Object {
     /// 包括locked、pinned、gc_mark和代，第2位0表示TypeRef，1表示TypeDef
@@ -8,18 +8,10 @@ pub struct Object {
     pub hash: u32,
     pub size: u16,
     pub type_token: [u8; 3],
+    /// 存储field数据
+    pub field_list: Vec<ILType>,
     /// 如果是box，那么这个存储原始数据
     pub box_value: Option<ILType>,
-}
-
-impl ToString for Object {
-    fn to_string(&self) -> String {
-        let mut s = String::new();
-        s.push_str("Object: ");
-        s.push_str(&format!("type_token: {}", self.get_type()));
-        // s.push_str(&format!("value: {}", self.value));
-        s
-    }
 }
 
 impl Hash for Object {
@@ -29,12 +21,13 @@ impl Hash for Object {
 }
 
 impl Object {
-    pub fn new(type_token: u32) -> Object {
+    pub fn new(type_token: u32, field_list: Vec<ILType>) -> Object {
         Object {
             flags: Object::parse_flags(type_token),
             hash: 0,
             size: 8,
             type_token: Object::parse_type_token(type_token),
+            field_list,
             box_value: None,
         }
     }
@@ -45,6 +38,7 @@ impl Object {
             hash: 0,
             size: 8,
             type_token: Object::parse_type_token(type_token),
+            field_list: Vec::default(),
             box_value: Some(value),
         }
     }
@@ -89,5 +83,12 @@ impl Object {
     pub fn get_type(&self) -> u32 {
         let is_def = self.flags & 1;
         u32::from_le_bytes([self.type_token[0], self.type_token[1], self.type_token[2], (is_def + 1) as u8])
+    }
+
+    pub fn to_string(&self, interpreter: &Interpreter) -> String {
+        match self.box_value {
+            Some(ref il_type) => format!("{}", interpreter.format_il_type(il_type)),
+            None => format!("Object: type_token: {}", self.get_type()),
+        }
     }
 }

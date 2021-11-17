@@ -3,7 +3,7 @@ use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
 use crate::interpreter::data_reader::DataReader;
-use super::{metadata::{md_token::{CodedToken, MDToken}, table_stream::{MDColumnType, MDTableType}}, signature::CallingConventionSig};
+use super::{metadata::{md_token::{CodedToken, MDToken}, table_stream::{MDType, MDTableType}}, signature::CallingConventionSig};
 
 #[derive(PartialEq, Eq)]
 pub enum TypeSig {
@@ -148,7 +148,7 @@ impl TypeSig {
 
     fn read_type_def_or_ref(allow_type_spec: bool, reader: &DataReader, offset: &mut usize) -> Option<TypeDefOrRefSig> {
         let coded_token =  reader.try_read_compressed_u32_immut(offset)?;
-        match CodedToken::from_column_size(MDColumnType::TypeDefOrRef).decode_as_md_table_type(coded_token) {
+        match CodedToken::from_md_type(MDType::TypeDefOrRef).decode_as_md_table_type(coded_token) {
             None => None,
             Some(table_type) => {
                 if !allow_type_spec && table_type == MDTableType::TypeDef {
