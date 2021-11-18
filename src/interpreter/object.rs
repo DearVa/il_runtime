@@ -1,4 +1,4 @@
-use std::{hash::{Hash, Hasher}, rc::Rc};
+use std::{collections::HashMap, hash::{Hash, Hasher}, rc::Rc};
 
 use super::{Assembly, Interpreter, il_type::ILType};
 
@@ -8,6 +8,7 @@ pub struct Object {
     pub hash: u32,
     pub size: u16,
     pub type_token: [u8; 3],
+    pub field_map: HashMap<u32, u32>,
     /// 存储field数据
     pub field_list: Vec<ILType>,
     /// 如果是box，那么这个存储原始数据
@@ -21,12 +22,13 @@ impl Hash for Object {
 }
 
 impl Object {
-    pub fn new(type_token: u32, field_list: Vec<ILType>) -> Object {
+    pub fn new(type_token: u32, field_map: HashMap<u32, u32>, field_list: Vec<ILType>) -> Object {
         Object {
             flags: Object::parse_flags(type_token),
             hash: 0,
             size: 8,
             type_token: Object::parse_type_token(type_token),
+            field_map,
             field_list,
             box_value: None,
         }
@@ -38,9 +40,18 @@ impl Object {
             hash: 0,
             size: 8,
             type_token: Object::parse_type_token(type_token),
+            field_map: HashMap::default(),
             field_list: Vec::default(),
             box_value: Some(value),
         }
+    }
+
+    pub fn get_field(&self, field_token_or_rid: u32) -> Option<&ILType> {
+        Some(&self.field_list[*self.field_map.get(&(field_token_or_rid & 0x00FFFFFF))? as usize])
+    }
+
+    pub fn set_field(&mut self, field_token_or_rid: u32, value: ILType) {
+        self.field_list[*self.field_map.get(&(field_token_or_rid & 0x00FFFFFF)).unwrap() as usize] = value;
     }
 
     fn parse_flags(type_token: u32) -> u8 {

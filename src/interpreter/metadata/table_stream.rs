@@ -1,4 +1,3 @@
-use num_traits::FromPrimitive;
 use num_derive::FromPrimitive;
 use std::convert::TryInto;
 use std::fmt;

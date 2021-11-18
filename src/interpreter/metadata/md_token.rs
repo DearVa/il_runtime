@@ -12,10 +12,6 @@ impl MDToken {
     pub const RID_MAX: u32 = 0x00FFFFFF;
     pub const TABLE_SHIFT: i32 = 24;
 
-    pub fn new(token: u32) -> MDToken {
-        MDToken { token }
-    }
-
     pub fn to_rid(token: u32) -> u32 {
         token & MDToken::RID_MASK
     }

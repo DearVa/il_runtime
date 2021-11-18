@@ -14,7 +14,7 @@ namespace TestCsharp {
 					WriteLine(i);
 				}
 			}
-			
+
 			WriteLine(Add(a + b, c));
 
 			a = (int)BoxAndUnbox(a);
@@ -22,18 +22,18 @@ namespace TestCsharp {
 			Add(true, 'a', sbyte.MaxValue, byte.MaxValue, short.MaxValue, ushort.MaxValue, 1, 1);
 
 			switch (c) {
-				case 1:
-					WriteLine(1);
-					break;
-				case 2:
-					WriteLine(2);
-					break;
-				case 3:
-					WriteLine(3);
-					break;
-				default:
-					WriteLine(0);
-					break;
+			case 1:
+				WriteLine(1);
+				break;
+			case 2:
+				WriteLine(2);
+				break;
+			case 3:
+				WriteLine(3);
+				break;
+			default:
+				WriteLine(0);
+				break;
 			}
 
 			var class0 = new Class0();
@@ -59,8 +59,14 @@ namespace TestCsharp {
 			Program.WriteLine("8 arguments");
 		}
 
+#if DEBUG
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		public static extern void WriteLine(object obj);
+#else
+		public static void WriteLine(object obj) {
+			System.Console.WriteLine(obj);
+		}
+#endif
 	}
 
 	internal class StaticAndInstance {
@@ -117,12 +123,15 @@ namespace TestCsharp {
 	}
 
 	public class Class1 : Class0 {
+		protected int b;
 		public Class1() {
 			a = 1;
 		}
 	}
 
-	public class Class2 : Class1 { }
+	public class Class2 : Class0 {
+		protected string c = "c";
+	}
 
 	public class Class3 : Class2 {
 		protected void WriteLine() {
@@ -148,6 +157,8 @@ namespace TestCsharp {
 			base.WriteLine(s);
 			Program.WriteLine(A);
 			Program.WriteLine((string)s);
+			Program.WriteLine(a);
+			Program.WriteLine(c);
 		}
 	}
 }

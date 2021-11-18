@@ -79,6 +79,7 @@ impl Assembly {
 
         let type_refs = TypeRef::read_type_refs(&metadata)?;
         let type_defs = TypeDef::read_type_defs(&metadata)?;
+        // 读取完之后ref和def之后，更新def中的field_list
 
         let field_to_type_map = type_defs.vec().map(|t| t.field_list.start_rid).collect::<Vec<u32>>();
         let fields = Field::read_fields(&metadata, field_to_type_map)?;
@@ -134,6 +135,27 @@ impl Assembly {
             exported_types,
         })
     }
+
+    // fn update_field_list(assembly: &Rc<Assembly>, type_def_or_ref: u32, field_list: &mut HashMap<u32, u32>) {
+    //     if type_def_or_ref == 0 {
+    //         return;
+    //     }
+    //     let extends = match type_def_or_ref >> 24 {
+    //         0x01 => {  // TypeRef
+    //             let type_ref = assembly.type_refs.index_get(type_def_or_ref as usize & 0x00FFFFFF).unwrap();
+
+    //         },
+    //         0x02 => {  // TypeDef
+    //             let type_def = assembly.type_defs.index_get(type_def_or_ref as usize & 0x00FFFFFF).unwrap();
+    //             let field_list_rid_list = type_def.field_list_rid_list;
+    //             for rid in field_list_rid_list.iter() {
+    //                 field_list.insert(rid, field_list.len() as u32);
+    //             }
+    //             type_def.extends
+    //         },
+    //         _ => return,
+    //     }
+    // }
 
     pub fn load(assembly_name: &AssemblyName) -> io::Result<Assembly> {
         let assembly_path = format!("{}{}.dll", Self::NET5_PATH, assembly_name.name);
@@ -249,6 +271,50 @@ impl Interpreter {
         assembly
     }
 
+    /// 解析给定的type_ref，如果其引用的Assembly未加载，那就加载它，返回usize为加载后assembly的index
+    fn resolve_type_ref(&mut self, ctx: &Context, type_ref_token: u32) -> (u32, usize) {
+        let type_ref = ctx.assembly.type_refs.index_get((type_ref_token & 0x00FFFFFF) as usize - 1).unwrap().clone();
+        let mut assembly_index;
+        let mut assembly = &Rc::clone(&ctx.assembly);
+        let resolution_scope = assembly.metadata.resolve_resolution_scope(type_ref.resolution_scope as u32).unwrap();
+        if (resolution_scope >> 24) == 0x23 {  // AssemblyRef
+            let assembly_name = &assembly.assembly_refs[(resolution_scope & 0x00FFFFFF) as usize - 1].assembly_name.clone();
+            match self.assemblies.key_get_index(&assembly_name.name) {
+                Some(index) => {
+                    assembly_index = index;
+                },
+                None => {
+                    self.load_assembly(&assembly_name);
+                    assembly_index = self.assemblies.len() - 1;
+                },
+            };
+            assembly = self.assemblies.index_get(assembly_index).unwrap();
+            let dest_type_index = assembly.type_defs.key_get_index(&type_ref.full_name);
+            if dest_type_index.is_none() {  // 说明是ExportedType
+                let exported_type = assembly.exported_types.key_get(&type_ref.full_name).unwrap();
+                match exported_type.implementation_type {
+                    ExportedTypeImpl::AssemblyRef => {
+                        let assembly_name = &assembly.assembly_refs[exported_type.implementation_rid as usize - 1].assembly_name.clone();
+                        match self.assemblies.key_get_index(&assembly_name.name) {
+                            Some(index) => {
+                                assembly_index = index;
+                            },
+                            None => {
+                                self.load_assembly(&assembly_name);
+                                assembly_index = self.assemblies.len() - 1;
+                            }
+                        }
+                        assembly = self.assemblies.index_get(assembly_index).unwrap();
+                        return (assembly.type_defs.key_get_index(&type_ref.full_name).unwrap() as u32, assembly_index);
+                    },
+                    _ => todo!()
+                }
+            }
+            return (dest_type_index.unwrap() as u32, assembly_index);
+        }
+        panic!("Cannot resolve type reference")
+    }
+
     /// 获取一个method的local列表
     fn get_method_locals(&mut self, ctx: &Context, method: &Method) -> Vec<ILType> {
         if method.local_var_rid == 0 {
@@ -300,39 +366,40 @@ impl Interpreter {
         self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
     }
 
-    fn il_new_obj(&mut self, ctx: &mut Context, type_token: u32) {
-        let assembly;
-        let mut field_list = Vec::new();
-        match type_token >> 24 {
-            0x02 => {
-                let type_def = ctx.assembly.type_defs.index_get((type_token & 0x00FFFFFF) as usize - 1).unwrap();
-                for rid in type_def.field_list.iter() {
-                    field_list.push(ctx.assembly.fields[rid as usize - 1].signature.as_ref().unwrap());
-                }
-            },
-            0x01 => {
-                let type_ref = ctx.assembly.type_refs.index_get((type_token & 0x00FFFFFF) as usize - 1).unwrap();
-                let resolution_scope = ctx.assembly.metadata.resolve_resolution_scope(type_ref.resolution_scope as u32).unwrap();
-                if (resolution_scope >> 24) == 0x23 {  // AssemblyRef
-                    let assembly_name = &ctx.assembly.assembly_refs[(resolution_scope & 0x00FFFFFF) as usize - 1].assembly_name.clone();
-                    let assembly_opt = self.assemblies.key_get(&assembly_name.name);
-                    if assembly_opt.is_none() {  // 如果引用的Assembly没有加载，那就加载
-                        assembly = self.load_assembly(&assembly_name);
-                    } else {
-                        assembly = Rc::clone(assembly_opt.unwrap());
+    fn get_field_list(&mut self, ctx: &mut Context, type_def_or_ref: u32, field_map: &mut HashMap<u32, u32>, field_list: &mut Vec<ILType>) {
+        let mut type_def_or_ref = type_def_or_ref;
+        let mut assembly;
+        loop {
+            let type_def = match type_def_or_ref >> 24 {
+                0x01 => {  // TypeRef
+                    let resolve_result = self.resolve_type_ref(ctx, type_def_or_ref);
+                    //ctx.assembly = Rc::clone(self.assemblies.index_get(resolve_result.1).unwrap());
+                    assembly = self.assemblies.index_get(resolve_result.1).unwrap();
+                    assembly.type_defs.index_get(resolve_result.0 as usize).unwrap()
+                },
+                0x02 => {  // TypeDef
+                    if type_def_or_ref << 8 == 0 {
+                        return;
                     }
-
-                    let dest_type = assembly.type_defs.key_get(&type_ref.full_name).unwrap();
-                    for dest_field_rid in dest_type.field_list.iter() {
-                        field_list.push(assembly.fields[dest_field_rid as usize - 1].signature.as_ref().unwrap());
-                    }
-                }
-            },
-            _ => {
-                panic!("newobj: type_token is not a type_def or type_ref");
+                    assembly = &ctx.assembly;
+                    assembly.type_defs.index_get((type_def_or_ref & 0x00FFFFFF) as usize - 1).unwrap()
+                },
+                _ => return,
+            };
+            for rid in type_def.field_list.iter() {
+                field_map.insert(rid, field_list.len() as u32);
+                field_list.push(ILType::from_signature(assembly.fields[rid as usize - 1].signature.as_ref().unwrap()));
             }
+            type_def_or_ref = type_def.extends;
         }
-        self.objects.push(Object::new(type_token, ILType::from_signatures(field_list)));
+    }
+
+    fn il_new_obj(&mut self, ctx: &mut Context, type_token: u32) {
+        // 由于类存在继承，所以FieldList可能是不连续的
+        let mut field_map = HashMap::new();
+        let mut field_list = Vec::new();
+        self.get_field_list(ctx, type_token, &mut field_map, &mut field_list);
+        self.objects.push(Object::new(type_token, field_map, field_list));
         self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
     }
 
@@ -349,50 +416,14 @@ impl Interpreter {
         let class = member_ref.class;
 
         if (class >> 24) == 0x01 {  // TypeRef
-            let type_ref = assembly.type_refs.index_get((class & 0x00FFFFFF) as usize - 1).unwrap().clone();
-            let resolution_scope = assembly.metadata.resolve_resolution_scope(type_ref.resolution_scope as u32).unwrap();
-            if (resolution_scope >> 24) == 0x23 {  // AssemblyRef
-                let assembly_name = &assembly.assembly_refs[(resolution_scope & 0x00FFFFFF) as usize - 1].assembly_name.clone();
-                match self.assemblies.key_get_index(&assembly_name.name) {
-                    Some(index) => {
-                        ctx.assembly = self.assemblies.index_get(index).unwrap().clone();
-                        ctx.assembly_index = index;
-                    },
-                    None => {
-                        ctx.assembly = self.load_assembly(&assembly_name);
-                        ctx.assembly_index = self.assemblies.len() - 1;
-                    }
-                }
-                let mut assembly = &ctx.assembly;
-                let mut dest_type = assembly.type_defs.key_get(&type_ref.full_name);
-                if dest_type.is_none() {  // 说明是ExportedType
-                    let exported_type = assembly.exported_types.key_get(&type_ref.full_name).unwrap();
-                    match exported_type.implementation_type {
-                        ExportedTypeImpl::AssemblyRef => {
-                            let assembly_name = &assembly.assembly_refs[exported_type.implementation_rid as usize - 1].assembly_name.clone();
-                            match self.assemblies.key_get_index(&assembly_name.name) {
-                                Some(index) => {
-                                    ctx.assembly = self.assemblies.index_get(index).unwrap().clone();
-                                    ctx.assembly_index = index;
-                                },
-                                None => {
-                                    ctx.assembly = self.load_assembly(&assembly_name);
-                                    ctx.assembly_index = self.assemblies.len() - 1;
-                                }
-                            }
-
-                            assembly = &ctx.assembly;
-                            dest_type = assembly.type_defs.key_get(&type_ref.full_name);
-                        },
-                        _ => todo!()
-                    }
-                }
-
-                for dest_method_rid in dest_type.unwrap().method_list.iter() {
-                    let dest_method = &assembly.methods[dest_method_rid as usize - 1];
-                    if dest_method.name == name && dest_method.signature == member_ref.signature {
-                        return dest_method_rid;  
-                    }
+            let resolve_result = self.resolve_type_ref(ctx, class);
+            ctx.assembly_index = resolve_result.1;
+            ctx.assembly = Rc::clone(self.assemblies.index_get(ctx.assembly_index).unwrap());
+            let dest_type = ctx.assembly.type_defs.index_get(resolve_result.0 as usize).unwrap();
+            for dest_method_rid in dest_type.method_list.iter() {
+                let dest_method = &ctx.assembly.methods[dest_method_rid as usize - 1];
+                if dest_method.name == name && dest_method.signature == member_ref.signature {
+                    return dest_method_rid;
                 }
             }
         }
@@ -911,9 +942,7 @@ impl Interpreter {
                                 },
                                 ILRefType::Object(obj_index) => {
                                     let obj = &mut self.objects[obj_index];
-                                    let obj_type = assembly.type_defs.index_get(obj.get_type() as usize - 0x02000001).unwrap();
-                                    let field_offset = rid - obj_type.field_list.start_rid;
-                                    obj.field_list[field_offset as usize] = value;
+                                    obj.set_field(rid, value);
                                 },
                             }
                         },

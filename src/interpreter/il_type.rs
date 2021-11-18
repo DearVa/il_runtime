@@ -104,7 +104,7 @@ impl ILType {
                 match r {
                     ILRefType::Object(o) => *o,
                     ILRefType::String(s) => *s,
-                    _ => panic!("not an object"),
+                    _ => panic!("Null reference exception"),
                 }
             },
             _ => panic!("not a ref type"),

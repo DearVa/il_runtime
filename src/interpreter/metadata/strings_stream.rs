@@ -38,20 +38,18 @@ impl StringsStream {
     }
 
     fn read_string_to_0(&self, mut offset: u32) -> io::Result<String> {
-        let mut bytes_left = self.data.len() - offset as usize;
-        let mut string = String::new();
+        let start = offset as usize;
+        let len = self.data.len();
         loop {
             let c = self.data[offset as usize];
             if c == 0 {
                 break;
             }
-            string.push(c as char);
-            bytes_left -= 1;
-            if bytes_left == 0 {
+            offset += 1;
+            if offset >= len as u32 {
                 return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Unexpected end of image"));
             }
-            offset += 1;
         }
-        Ok(string)
+        Ok(self.data[start..offset as usize].iter().map(|&c| c as char).collect::<String>())
     }
 }
