@@ -3,7 +3,7 @@ use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
 use crate::interpreter::data_reader::DataReader;
-use super::{metadata::{Metadata, md_token::CodedToken, table_stream::{MDType, MDTableType}}, signature::CallingConventionSig};
+use super::{metadata::{Metadata, md_token::CodedToken, table_stream::{MDType, MDTableType}}, calling_convention_sig::CallingConventionSig};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TypeSig {

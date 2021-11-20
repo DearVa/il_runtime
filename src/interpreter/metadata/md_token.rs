@@ -40,8 +40,8 @@ impl CodedToken {
         }
     }
 
-    pub fn from_md_type(column_size: MDType) -> CodedToken {
-        match column_size {
+    pub fn from_md_type(md_type: MDType) -> CodedToken {
+        match md_type {
             MDType::TypeDefOrRef => CodedToken::new(2, vec![MDTableType::TypeDef, MDTableType::TypeRef, MDTableType::TypeSpec]),
             MDType::HasConstant => CodedToken::new(2, vec![MDTableType::Field, MDTableType::Param, MDTableType::Property]),
             MDType::HasCustomAttribute => CodedToken::new(5, vec![MDTableType::Method, MDTableType::Field, MDTableType::TypeRef, MDTableType::TypeDef, MDTableType::Param, MDTableType::InterfaceImpl, MDTableType::MemberRef, MDTableType::Module, MDTableType::DeclSecurity, MDTableType::Property, MDTableType::Event, MDTableType::StandAloneSig, MDTableType::ModuleRef, MDTableType::TypeSpec, MDTableType::Assembly, MDTableType::AssemblyRef, MDTableType::File, MDTableType::ExportedType, MDTableType::ManifestResource, MDTableType::GenericParam, MDTableType::GenericParamConstraint, MDTableType::MethodSpec, MDTableType::Module, MDTableType::Module]),

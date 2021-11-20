@@ -37,11 +37,13 @@ mod assembly_ref;
 use assembly_ref::*;
 mod exported_type;
 use exported_type::*;
+mod method_spec;
+use method_spec::*;
 
 mod type_sig;
 use type_sig::*;
-mod signature;
-use signature::*;
+mod calling_convention_sig;
+use calling_convention_sig::*;
 mod object;
 use object::*;
 
@@ -66,6 +68,7 @@ pub struct Assembly {
     pub type_specs: Vec<TypeSpec>,              //  (0x1B000001...), TypeSpec 
     pub assembly_refs: Vec<AssemblyRef>,        //  (0x23000001...), AssemblyRef
     pub exported_types: HashVec<String, ExportedType>, // (0x27000001...), ExportedType
+    pub method_specs: Vec<MethodSpec>,          // (0x2B000001...), MethodSpec
 }
 
 impl Assembly {
@@ -99,6 +102,7 @@ impl Assembly {
         let type_specs = TypeSpec::read_type_specs(&metadata)?;
         let assembly_refs = AssemblyRef::read_assembly_refs(&metadata)?;
         let exported_types = ExportedType::read_exported_types(&metadata)?;
+        let method_specs = MethodSpec::read_method_specs(&metadata)?;
 
         let assembly_table = &metadata.table_stream.md_tables[0x20];
         let major_version = assembly_table.columns[1].get_cell_u16(0);
@@ -138,6 +142,7 @@ impl Assembly {
             type_specs,
             assembly_refs,
             exported_types,
+            method_specs,
         })
     }
 
@@ -435,6 +440,9 @@ impl Interpreter {
             },
             0x0A => {  // 需要先找到MemberRef，再找到TypeRef，最后定位到AssemblyRef
                 self.resolve_member_ref(ctx, token)
+            },
+            0x2B => {  // 泛型方法
+                self.get_method_index(ctx, ctx.assembly.method_specs[(token & 0x00FFFFFF) as usize - 1].method)
             },
             _ => panic!("Invalid method_token")
         }

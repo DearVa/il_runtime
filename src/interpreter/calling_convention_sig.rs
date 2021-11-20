@@ -39,6 +39,7 @@ pub enum CallingConventionSig {
     MethodSig(MethodSig),
     PropertySig(MethodSig),
     LocalSig(LocalSig),
+    GenericInstMethodSig(GenericInstMethodSig),
 }
 
 impl CallingConventionSig {
@@ -78,8 +79,7 @@ impl CallingConventionSig {
                 Self::read_property(calling_convention, &reader, offset)
             },
             CallingConvention::GENERIC_INST => {
-                todo!();
-                // Self::read_generic_inst(calling_convention, &reader, offset)
+                Self::read_generic_inst(calling_convention, &reader, offset)
             },
             _=> None
         }
@@ -107,6 +107,15 @@ impl CallingConventionSig {
             Some(CallingConventionSig::MethodSig(method_sig)) => Some(CallingConventionSig::PropertySig(method_sig)),
             _ => None
         }
+    }
+
+    fn read_generic_inst(calling_convention: CallingConvention, reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
+        let count =  reader.try_read_compressed_u32_immut(offset)?;
+        let mut sig = GenericInstMethodSig::new(calling_convention, count as usize);
+        for _ in 0..count {
+            sig.generic_args.push(TypeSig::read_sig(reader, offset).unwrap());
+        }
+        Some(CallingConventionSig::GenericInstMethodSig(sig))
     }
 
     fn read_sig_internal(method_sig: MethodSig, reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
@@ -272,6 +281,21 @@ impl LocalSig {
         LocalSig {
             base: CallingConventionSigBase::new(calling_convention),
             locals: Vec::with_capacity(count),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct GenericInstMethodSig {
+    pub base: CallingConventionSigBase,
+    pub generic_args: Vec<TypeSig>,
+}
+
+impl GenericInstMethodSig {
+    pub fn new(calling_convention: CallingConvention, count: usize) -> GenericInstMethodSig {
+        GenericInstMethodSig {
+            base: CallingConventionSigBase::new(calling_convention),
+            generic_args: Vec::with_capacity(count),
         }
     }
 }

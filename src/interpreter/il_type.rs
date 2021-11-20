@@ -2,7 +2,7 @@ use std::{cmp::Ordering, ops::{Add, BitAnd, BitOr, BitXor, Sub}};
 
 use crate::interpreter::type_sig::{CorLibType, TypeSig};
 
-use super::signature::CallingConventionSig;
+use super::calling_convention_sig::CallingConventionSig;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ILValType {
