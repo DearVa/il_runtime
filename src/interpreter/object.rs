@@ -1,65 +1,55 @@
-use std::{collections::HashMap, hash::{Hash, Hasher}, rc::Rc};
+use std::{hash::{Hash, Hasher}, ptr};
 
-use super::{Assembly, Interpreter, il_type::ILType};
+use crate::hash_vec::HashVec;
+
+use super::{Interpreter, il_type::ILType};
 
 pub struct Object {
-    /// 包括locked、pinned、gc_mark和代，第2位0表示TypeRef，1表示TypeDef
-    pub flags: u8,
-    pub hash: u32,
-    pub size: u16,
-    pub type_token: [u8; 3],
-    pub field_map: HashMap<u32, u32>,
-    /// 存储field数据
-    pub field_list: Vec<ILType>,
+    /// 包括locked、pinned、gc_mark和代
+    flags: u8,
+    /// 对象原始的type_token，不可改变
+    origin_type_token: u32,
+    /// 对象的type_token，可能经过castclass发生了改变
+    pub type_token: u32,
+    field_map: HashVec<u32, ILType>,
     /// 如果是box，那么这个存储原始数据
     pub box_value: Option<ILType>,
 }
 
 impl Hash for Object {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.hash.hash(state);
+        ptr::addr_of!(self).hash(state);
     }
 }
 
 impl Object {
-    pub fn new(type_token: u32, field_map: HashMap<u32, u32>, field_list: Vec<ILType>) -> Object {
+    pub fn new(type_token: u32, field_map: HashVec<u32, ILType>) -> Object {
         Object {
-            flags: Object::parse_flags(type_token),
-            hash: 0,
-            size: 8,
-            type_token: Object::parse_type_token(type_token),
+            flags: 0,
+            origin_type_token: type_token,
+            type_token,
             field_map,
-            field_list,
             box_value: None,
         }
     }
 
     pub fn new_box(type_token: u32, value: ILType) -> Object {
         Object {
-            flags: Object::parse_flags(type_token),
-            hash: 0,
-            size: 8,
-            type_token: Object::parse_type_token(type_token),
-            field_map: HashMap::default(),
-            field_list: Vec::default(),
+            flags: 0,
+            origin_type_token: type_token,
+            type_token,
+            field_map: HashVec::new(),
             box_value: Some(value),
         }
     }
 
     pub fn get_field(&self, field_token_or_rid: u32) -> Option<&ILType> {
-        Some(&self.field_list[*self.field_map.get(&(field_token_or_rid & 0x00FFFFFF))? as usize])
+        self.field_map.key_get(&(field_token_or_rid & 0x00FFFFFF))
     }
 
     pub fn set_field(&mut self, field_token_or_rid: u32, value: ILType) {
-        self.field_list[*self.field_map.get(&(field_token_or_rid & 0x00FFFFFF)).unwrap() as usize] = value;
-    }
-
-    fn parse_flags(type_token: u32) -> u8 {
-        if (type_token >> 24) & 0xF == 2 {
-            1
-        } else {
-            0
-        }
+        let field = self.field_map.key_get_mut(&(field_token_or_rid & 0x00FFFFFF)).unwrap();
+        *field = value;
     }
 
     fn parse_type_token(type_token: u32) -> [u8; 3] {
@@ -92,8 +82,7 @@ impl Object {
     }
 
     pub fn get_type(&self) -> u32 {
-        let is_def = self.flags & 1;
-        u32::from_le_bytes([self.type_token[0], self.type_token[1], self.type_token[2], (is_def + 1) as u8])
+        self.origin_type_token
     }
 
     pub fn to_string(&self, interpreter: &Interpreter) -> String {

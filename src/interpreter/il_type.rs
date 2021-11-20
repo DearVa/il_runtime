@@ -18,6 +18,9 @@ pub enum ILValType {
     UInt64(u64),
     Short(i16),
     UShort(u16),
+
+    Isize(isize),
+    Usize(usize),
 }
 
 impl ILValType {
@@ -35,6 +38,8 @@ impl ILValType {
             ILValType::UInt64(i) => i == 0,
             ILValType::Short(i) => i == 0,
             ILValType::UShort(i) => i == 0,
+            ILValType::Isize(i) => i == 0,
+            ILValType::Usize(i) => i == 0,
         }
     }
 
@@ -52,6 +57,27 @@ impl ILValType {
             ILValType::UInt64(i) => i as u32,
             ILValType::Short(i) => i as u32,
             ILValType::UShort(i) => i as u32,
+            ILValType::Isize(i) => i as u32,
+            ILValType::Usize(i) => i as u32,
+        }
+    }
+
+    pub fn to_usize(&self) -> usize {
+        match *self {
+            ILValType::Boolean(b) => b as usize,
+            ILValType::Byte(b) => b as usize,
+            ILValType::SByte(b) => b as usize,
+            ILValType::Char(c) => c as usize,
+            ILValType::Double(d) => d as usize,
+            ILValType::Single(f) => f as usize,
+            ILValType::Int32(i) => i as usize,
+            ILValType::UInt32(i) => i as usize,
+            ILValType::Int64(i) => i as usize,
+            ILValType::UInt64(i) => i as usize,
+            ILValType::Short(i) => i as usize,
+            ILValType::UShort(i) => i as usize,
+            ILValType::Isize(i) => i as usize,
+            ILValType::Usize(i) => i,
         }
     }
 }
@@ -71,6 +97,8 @@ impl ToString for ILValType {
             ILValType::UInt64(i) => i.to_string(),
             ILValType::Short(i) => i.to_string(),
             ILValType::UShort(i) => i.to_string(),
+            ILValType::Isize(i) => i.to_string(),
+            ILValType::Usize(i) => i.to_string(),
         }
     }
 }
@@ -83,11 +111,47 @@ pub enum ILRefType {
     Object(usize),  // 指向Objects堆
 }
 
+/// 表示一个托管的Ptr，可能指向Param，Local或者Static
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ILPtr {
+    /// (栈ID, index)
+    Param((usize, usize)),
+    /// (栈ID, index)
+    Local((usize, usize)),
+    /// (Assembly_index, token)
+    Static((usize, u32)),
+}
+
+/// 表示一个Native Ptr，但其实不是真的指针，使用安全的方式封装
+#[derive(Debug, Clone, PartialEq)]
+pub struct ILNPtr {
+    data: Option<Box<Vec<u8>>>,
+    offset: usize,
+}
+
+impl ILNPtr {
+    pub fn new(size: usize) -> ILNPtr {
+        ILNPtr {
+            data: Some(Box::new(vec![0; size])),
+            offset: 0,
+        }
+    }
+
+    pub fn offset(&mut self, off: isize) {
+        if off.is_negative() {
+            self.offset.checked_sub(off.wrapping_abs() as usize);
+        } else {
+            self.offset.checked_add(off as usize);
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum ILType {
     Val(ILValType),
     Ref(ILRefType),
-    Ptr(*mut ILType),
+    Ptr(ILPtr),
+    NPtr(ILNPtr),
 }
 
 impl ILType {
@@ -120,9 +184,10 @@ impl ILType {
                     _ => false,
                 }
             },
-            ILType::Ptr(p) => {
-                p.is_null()
+            ILType::NPtr(p) => {
+                p.data.is_none()
             },
+            ILType::Ptr(_) => false,
         }
     }
 
@@ -189,10 +254,14 @@ impl Add for ILType {
                     _ => panic!("Invalid Operation")
                 }
             },
-            (ILType::Ptr(p1), ILType::Val(ILValType::Int32(i2))) => ILType::Ptr(unsafe { p1.offset(i2 as isize) }),
-            (ILType::Ptr(p1), ILType::Val(ILValType::Int64(i2))) => ILType::Ptr(unsafe { p1.offset(i2 as isize) }),
-            (ILType::Val(ILValType::Int32(i1)), ILType::Ptr(p2)) => ILType::Ptr(unsafe { p2.offset(i1 as isize) }),
-            (ILType::Val(ILValType::Int64(i1)), ILType::Ptr(p2)) => ILType::Ptr(unsafe { p2.offset(i1 as isize) }),
+            (ILType::NPtr(mut p1), ILType::Val(ILValType::Int32(i2))) => {
+                p1.offset(i2 as isize);
+                ILType::NPtr(p1)
+            }
+            (ILType::NPtr(mut p1), ILType::Val(ILValType::Int64(i2))) => {
+                p1.offset(i2 as isize);
+                ILType::NPtr(p1)
+            }
             _ => panic!("Invalid Operation")
         }
     }

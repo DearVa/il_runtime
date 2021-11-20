@@ -207,6 +207,8 @@ pub struct Context {
     assembly_index: usize,
     /// 调用堆栈，记录当前assembly的index和method_token
     call_stack: Vec<(usize, u32)>,
+    /// 栈ID，每次调用加一，因为Local和Param每次调用就要清除，所以如果根据托管指针来改变，需要检查这个值
+    stack_id: usize,
 }
 
 impl Context {
@@ -215,6 +217,16 @@ impl Context {
             assembly: Rc::clone(assembly),
             assembly_index,
             call_stack: Vec::new(),
+            stack_id: 0,
+        }
+    }
+
+    pub fn make_temp(&self) -> Context {
+        Context {
+            assembly: Rc::clone(&self.assembly),
+            assembly_index: self.assembly_index,
+            call_stack: Vec::new(),
+            stack_id: self.stack_id,
         }
     }
 }
@@ -261,6 +273,7 @@ impl Interpreter {
             ILType::Ref(ILRefType::String(s)) => format!("{}", self.strings[*s as usize]),
             ILType::Val(v) => format!("{}", v.to_string()),
             ILType::Ptr(p) => format!("Ptr: {:?}", p),
+            ILType::NPtr(p) => format!("NPtr: {:?}", p),
         }
     }
     
@@ -272,8 +285,8 @@ impl Interpreter {
     }
 
     /// 解析给定的type_ref，如果其引用的Assembly未加载，那就加载它，返回usize为加载后assembly的index
-    fn resolve_type_ref(&mut self, ctx: &Context, type_ref_token: u32) -> (u32, usize) {
-        let type_ref = ctx.assembly.type_refs.index_get((type_ref_token & 0x00FFFFFF) as usize - 1).unwrap().clone();
+    fn resolve_type_ref(&mut self, ctx: &Context, type_ref_token: u32) -> (usize, usize) {
+        let type_ref = ctx.assembly.type_refs.index_get((type_ref_token & 0x00FFFFFF) as usize - 1).unwrap();
         let mut assembly_index;
         let mut assembly = &Rc::clone(&ctx.assembly);
         let resolution_scope = assembly.metadata.resolve_resolution_scope(type_ref.resolution_scope as u32).unwrap();
@@ -305,14 +318,33 @@ impl Interpreter {
                             }
                         }
                         assembly = self.assemblies.index_get(assembly_index).unwrap();
-                        return (assembly.type_defs.key_get_index(&type_ref.full_name).unwrap() as u32, assembly_index);
+                        return (assembly.type_defs.key_get_index(&type_ref.full_name).unwrap(), assembly_index);
                     },
                     _ => todo!()
                 }
             }
-            return (dest_type_index.unwrap() as u32, assembly_index);
+            return (dest_type_index.unwrap(), assembly_index);
         }
         panic!("Cannot resolve type reference")
+    }
+
+    /// 解析给定的type_token，可能是type_def或者type_ref，如果为type_ref，就可以自动加载Assembly
+    fn resolve_type_token(&mut self, ctx: &mut Context, type_ref_token: u32) -> usize {
+        if type_ref_token << 8 == 0 {
+            return 0;
+        }
+        match type_ref_token >> 24 {
+            0x01 => {  // TypeRef
+                let resolve_result = self.resolve_type_ref(ctx, type_ref_token);
+                ctx.assembly = Rc::clone(self.assemblies.index_get(resolve_result.1).unwrap());
+                ctx.assembly_index = resolve_result.1;
+                resolve_result.0
+            },
+            0x02 => {  // TypeDef
+                (type_ref_token as usize & 0x00FFFFFF) - 1
+            },
+            _ => panic!("Not a type_def or type_ref"),
+        }
     }
 
     /// 获取一个method的local列表
@@ -328,7 +360,7 @@ impl Interpreter {
     }
 
     /// 尝试获取一个字段的cctor，前提是它是static并且他的cctor尚未被调用过
-    fn try_get_cctor(&mut self, ctx: &mut Context, field: &Field) -> Option<u32> {
+    fn try_get_cctor(&mut self, ctx: &Context, field: &Field) -> Option<u32> {
         if field.is_static() {
             if self.static_fields[ctx.assembly_index].get(&field.token).is_none() {
                 let owner_type = ctx.assembly.type_defs.index_get(field.owner_type as usize).unwrap();
@@ -344,7 +376,7 @@ impl Interpreter {
     }
 
     /// 将owner_type（从Field获取）中的所有static字段初始化
-    fn init_static_fields(&mut self, ctx: &mut Context, owner_type: u32) {
+    fn init_static_fields(&mut self, ctx: &Context, owner_type: u32) {
         let owner_type = ctx.assembly.type_defs.index_get(owner_type as usize).unwrap();
         for rid in owner_type.field_list.iter() {
             let field = &ctx.assembly.fields[rid as usize - 1];
@@ -354,58 +386,23 @@ impl Interpreter {
         }
     }
 
-    fn internal_call(&mut self, method: &Method) {
-        if method.name == "WriteLine" {
-            let value = self.stack.pop_back().unwrap();
-            println!("{}", self.format_il_type(&value).green());
-        }
-    }
-
-    fn il_box_obj(&mut self, type_token: u32, value: ILType) {
-        self.objects.push(Object::new_box(type_token, value));
-        self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
-    }
-
-    fn get_field_list(&mut self, ctx: &mut Context, type_def_or_ref: u32, field_map: &mut HashMap<u32, u32>, field_list: &mut Vec<ILType>) {
+    fn get_field_list(&mut self, ctx: &Context, type_def_or_ref: u32, field_map: &mut HashVec<u32, ILType>) {
         let mut type_def_or_ref = type_def_or_ref;
-        let mut assembly;
+        let mut ctx = ctx.make_temp();
         loop {
-            let type_def = match type_def_or_ref >> 24 {
-                0x01 => {  // TypeRef
-                    let resolve_result = self.resolve_type_ref(ctx, type_def_or_ref);
-                    //ctx.assembly = Rc::clone(self.assemblies.index_get(resolve_result.1).unwrap());
-                    assembly = self.assemblies.index_get(resolve_result.1).unwrap();
-                    assembly.type_defs.index_get(resolve_result.0 as usize).unwrap()
-                },
-                0x02 => {  // TypeDef
-                    if type_def_or_ref << 8 == 0 {
-                        return;
-                    }
-                    assembly = &ctx.assembly;
-                    assembly.type_defs.index_get((type_def_or_ref & 0x00FFFFFF) as usize - 1).unwrap()
-                },
-                _ => return,
-            };
+            let type_def_index = self.resolve_type_token(&mut ctx, type_def_or_ref);
+            if type_def_index == 0 {
+                return;
+            }
+            let type_def = ctx.assembly.type_defs.index_get(type_def_index).unwrap();
             for rid in type_def.field_list.iter() {
-                field_map.insert(rid, field_list.len() as u32);
-                field_list.push(ILType::from_signature(assembly.fields[rid as usize - 1].signature.as_ref().unwrap()));
+                if ctx.assembly.fields[rid as usize - 1].is_static() {
+                    continue;
+                }
+                field_map.insert(rid, ILType::from_signature(ctx.assembly.fields[rid as usize - 1].signature.as_ref().unwrap()));
             }
             type_def_or_ref = type_def.extends;
         }
-    }
-
-    fn il_new_obj(&mut self, ctx: &mut Context, type_token: u32) {
-        // 由于类存在继承，所以FieldList可能是不连续的
-        let mut field_map = HashMap::new();
-        let mut field_list = Vec::new();
-        self.get_field_list(ctx, type_token, &mut field_map, &mut field_list);
-        self.objects.push(Object::new(type_token, field_map, field_list));
-        self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
-    }
-
-    fn il_new_string(&mut self, string: String) {
-        self.strings.push(string);
-        self.stack.push_back(ILType::Ref(ILRefType::String(self.strings.len() - 1)));
     }
 
     /// 加载其他Assembly中的方法，更改ctx的Assembly并返回rid
@@ -417,8 +414,8 @@ impl Interpreter {
 
         if (class >> 24) == 0x01 {  // TypeRef
             let resolve_result = self.resolve_type_ref(ctx, class);
+            ctx.assembly = Rc::clone(self.assemblies.index_get(resolve_result.1).unwrap());
             ctx.assembly_index = resolve_result.1;
-            ctx.assembly = Rc::clone(self.assemblies.index_get(ctx.assembly_index).unwrap());
             let dest_type = ctx.assembly.type_defs.index_get(resolve_result.0 as usize).unwrap();
             for dest_method_rid in dest_type.method_list.iter() {
                 let dest_method = &ctx.assembly.methods[dest_method_rid as usize - 1];
@@ -430,19 +427,50 @@ impl Interpreter {
         panic!("Invalid method_token")
     }
 
-    fn il_call(&mut self, ctx: &mut Context, method_token: u32) {
-        let param_count;
-        let method = match method_token >> 24 {
+    /// 通过method_token或者member_ref_token获取method的index
+    fn get_method_index(&mut self, ctx: &mut Context, token: u32) -> usize {
+        match token >> 24 {
             0x06 => {  // 表示是当前Assembly内的方法
-                &ctx.assembly.methods[(method_token & 0x00FFFFFF) as usize - 1]
+                (token & 0x00FFFFFF) as usize - 1
             },
             0x0A => {  // 需要先找到MemberRef，再找到TypeRef，最后定位到AssemblyRef
-                let dest_method_rid = self.load_dest_method(ctx, method_token);
-                &ctx.assembly.methods[dest_method_rid as usize - 1]
+                self.load_dest_method(ctx, token) as usize - 1
             },
             _ => panic!("Invalid method_token")
-        };
-        ctx.call_stack.push((ctx.assembly_index, method_token));
+        }
+    }
+
+    fn il_internal_call(&mut self, method: &Method) {
+        if method.name == "WriteLine" {
+            let value = self.stack.pop_back().unwrap();
+            println!("{}", self.format_il_type(&value).green());
+        }
+    }
+
+    fn il_box_obj(&mut self, type_token: u32, value: ILType) {
+        self.objects.push(Object::new_box(type_token, value));
+        self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
+    }
+
+    fn il_new_obj(&mut self, ctx: &Context, type_token: u32) {
+        // 由于类存在继承，所以FieldList可能是不连续的
+        let mut field_map = HashVec::new();
+        self.get_field_list(ctx, type_token, &mut field_map);
+        self.objects.push(Object::new(type_token, field_map));
+        self.stack.push_back(ILType::Ref(ILRefType::Object(self.objects.len() - 1)));
+    }
+
+    fn il_new_string(&mut self, string: String) {
+        self.strings.push(string);
+        self.stack.push_back(ILType::Ref(ILRefType::String(self.strings.len() - 1)));
+    }
+
+    fn il_call(&mut self, ctx: &mut Context, method_or_member_ref: u32) {
+        ctx.stack_id += 1;
+        let param_count;
+        let method_index = self.get_method_index(ctx, method_or_member_ref);
+        let method = &ctx.assembly.methods[method_index];
+        ctx.call_stack.push((ctx.assembly_index, method_or_member_ref));
         let call_depth = ctx.call_stack.len();
         let method_name = method.to_string(&ctx.assembly);
         for _ in 0..call_depth {
@@ -456,7 +484,7 @@ impl Interpreter {
         }
 
         if method.check_impl_flag_info(ImplAttrFlagInfo::CommonImplAttrFlagInfo(CommonImplAttrFlagInfo::InternalCall)) {
-            self.internal_call(method);
+            self.il_internal_call(method);
             ctx.call_stack.pop();
             ctx.assembly_index = ctx.call_stack.last().unwrap().0;
             ctx.assembly = Rc::clone(&self.assemblies.index_get(ctx.assembly_index).unwrap());
@@ -477,7 +505,7 @@ impl Interpreter {
         }
 
         let mut locals = self.get_method_locals(ctx, method);
-        loop {  // 禁止使用return脱离循环
+        'root: loop {  // 禁止使用return脱离循环
             let op = reader.read_u8_immut(&mut rip).unwrap();
             match FromPrimitive::from_u8(op) {
                 Some(OpCode::Nop) => {},
@@ -485,28 +513,28 @@ impl Interpreter {
                     println!("break");
                 },
                 Some(OpCode::Ldarg0) => {
-                    self.stack.push_back(params[0]);
+                    self.stack.push_back(params[0].clone());
                 },
                 Some(OpCode::Ldarg1) => {
-                    self.stack.push_back(params[1]);
+                    self.stack.push_back(params[1].clone());
                 },
                 Some(OpCode::Ldarg2) => {
-                    self.stack.push_back(params[2]);
+                    self.stack.push_back(params[2].clone());
                 },
                 Some(OpCode::Ldarg3) => {
-                    self.stack.push_back(params[3]);
+                    self.stack.push_back(params[3].clone());
                 },
                 Some(OpCode::Ldloc0) => {
-                    self.stack.push_back(locals[0]);
+                    self.stack.push_back(locals[0].clone());
                 },
                 Some(OpCode::Ldloc1) => {
-                    self.stack.push_back(locals[1]);
+                    self.stack.push_back(locals[1].clone());
                 },
                 Some(OpCode::Ldloc2) => {
-                    self.stack.push_back(locals[2]);
+                    self.stack.push_back(locals[2].clone());
                 },
                 Some(OpCode::Ldloc3) => {
-                    self.stack.push_back(locals[3]);
+                    self.stack.push_back(locals[3].clone());
                 },
                 Some(OpCode::Stloc0) => {
                     locals[0] = self.stack.pop_back().unwrap();
@@ -522,11 +550,11 @@ impl Interpreter {
                 },
                 Some(OpCode::Ldargs) => {
                     let index = reader.read_u8_immut(&mut rip).unwrap();
-                    self.stack.push_back(params[index as usize]);
+                    self.stack.push_back(params[index as usize].clone());
                 },
                 Some(OpCode::Ldargas) => {
                     let index = reader.read_u8_immut(&mut rip).unwrap();
-                    self.stack.push_back(ILType::Ptr(ptr::addr_of_mut!(params[index as usize])));
+                    self.stack.push_back(ILType::Ptr(ILPtr::Param((ctx.stack_id, index as usize))));
                 },
                 Some(OpCode::Stargs) => {
                     let index = reader.read_u8_immut(&mut rip).unwrap();
@@ -534,11 +562,11 @@ impl Interpreter {
                 },
                 Some(OpCode::Ldlocs) => {
                     let index = reader.read_u8_immut(&mut rip).unwrap();
-                    self.stack.push_back(locals[index as usize]);
+                    self.stack.push_back(locals[index as usize].clone());
                 },
                 Some(OpCode::Ldlocas) => {
                     let index = reader.read_u8_immut(&mut rip).unwrap();
-                    self.stack.push_back(ILType::Ptr(ptr::addr_of_mut!(locals[index as usize])));
+                    self.stack.push_back(ILType::Ptr(ILPtr::Local((ctx.stack_id, index as usize))));
                 },
                 Some(OpCode::Stlocs) => {
                     let index = reader.read_u8_immut(&mut rip).unwrap();
@@ -862,7 +890,8 @@ impl Interpreter {
                     todo!();
                 },
                 Some(OpCode::Callvirt) => {
-                    todo!();
+                    let token = reader.read_u32_immut(&mut rip).unwrap();
+                    self.il_call(ctx, token);
                 },
                 Some(OpCode::Cpobj) => {
                     todo!();
@@ -877,13 +906,42 @@ impl Interpreter {
                 },
                 Some(OpCode::Newobj) => {
                     let token = reader.read_u32_immut(&mut rip).unwrap();
-                    let type_token = assembly.methods[token as usize - 0x06000001].owner_type + 0x02000001;
+                    let method_index = self.get_method_index(ctx, token);
+                    let type_token = ctx.assembly.methods[method_index].owner_type + 0x02000001;
                     self.il_new_obj(ctx, type_token);  // 根据.ctor找到类，new出来推送到栈上，作为.ctor的this
                     self.stack.push_back(self.stack.back().unwrap().clone());
                     self.il_call(ctx, token);
                 },
                 Some(OpCode::Castclass) => {
-                    todo!();
+                    let type_token = reader.read_u32_immut(&mut rip).unwrap();
+                    let obj = self.stack.pop_back().unwrap();
+                    match obj {
+                        ILType::Ref(ILRefType::Null) => {
+                            self.stack.push_back(ILType::Ref(ILRefType::Null));
+                        },
+                        ILType::Ref(ILRefType::Object(index)) => {
+                            let obj_type_token = self.objects[index].get_type();
+                            let mut temp_ctx = ctx.make_temp();
+                            let obj_type_index = self.resolve_type_token(&mut temp_ctx, obj_type_token);
+                            let obj_type = ctx.assembly.type_defs.index_get(obj_type_index).expect("TypeLoadException");
+                            let mut extends = obj_type.extends;
+                            while extends != 0 {
+                                let extends_index = self.resolve_type_token(&mut temp_ctx, obj_type_token);
+                                let extends_type = ctx.assembly.type_defs.index_get(extends_index).expect("TypeLoadException");
+                                if extends_type.token == type_token {
+                                    self.objects[index].type_token = type_token;
+                                    self.stack.push_back(ILType::Ref(ILRefType::Object(index)));
+                                    break 'root;
+                                }
+                                extends = extends_type.extends;
+                            }
+                            panic!("InvalidCastException");
+                        },
+                        ILType::Ref(ILRefType::String(index)) => {
+                            self.stack.push_back(ILType::Ref(ILRefType::String(index)));
+                        },
+                        _ => panic!("InvalidCastException"),
+                    }
                 },
                 Some(OpCode::Isinst) => {
                     todo!();
@@ -907,14 +965,12 @@ impl Interpreter {
                                 ILRefType::Null => {
                                     panic!("Null reference exception.");
                                 },
-                                ILRefType::String(str) => {
+                                ILRefType::String(index) => {
                                     todo!();
                                 },
-                                ILRefType::Object(obj) => {
-                                    let obj = &self.objects[obj];
-                                    let obj_type = assembly.type_defs.index_get(obj.get_type() as usize - 0x02000001).unwrap();
-                                    let field_offset = rid - obj_type.field_list.start_rid;
-                                    self.stack.push_back(obj.field_list[field_offset as usize].clone());
+                                ILRefType::Object(index) => {
+                                    let obj = &self.objects[index];
+                                    self.stack.push_back(obj.get_field(rid).unwrap().clone());
                                 },
                             }
                         },
@@ -928,7 +984,6 @@ impl Interpreter {
                 },
                 Some(OpCode::Stfld) => {
                     let token = reader.read_u32_immut(&mut rip).unwrap();
-                    let rid = token - 0x04000000;
                     let value = self.stack.pop_back().unwrap();
                     let this = self.stack.pop_back().unwrap();
                     match this {
@@ -942,7 +997,7 @@ impl Interpreter {
                                 },
                                 ILRefType::Object(obj_index) => {
                                     let obj = &mut self.objects[obj_index];
-                                    obj.set_field(rid, value);
+                                    obj.set_field(token, value);
                                 },
                             }
                         },
@@ -970,8 +1025,7 @@ impl Interpreter {
                         self.init_static_fields(ctx, field.owner_type);
                         self.il_call(ctx, cctor.unwrap());
                     }
-                    let field_value = self.static_fields[ctx.assembly_index].get_mut(&token).unwrap();
-                    self.stack.push_back(ILType::Ptr(ptr::addr_of_mut!(*field_value)));
+                    self.stack.push_back(ILType::Ptr(ILPtr::Static((ctx.assembly_index, token))));
                 },
                 Some(OpCode::Stsfld) => {
                     let token = reader.read_u32_immut(&mut rip).unwrap();
@@ -1100,7 +1154,7 @@ impl Interpreter {
                     if ref_obj.get_type() != token {
                         panic!("unboxany: type mismatch");
                     }
-                    self.stack.push_back(ref_obj.box_value.unwrap());
+                    self.stack.push_back(ref_obj.box_value.clone().unwrap());
                 },
                 Some(OpCode::Convovfi1) => {
                     todo!();
@@ -1174,9 +1228,6 @@ impl Interpreter {
                 Some(OpCode::Endfault) => {
                     todo!();
                 },
-                Some(OpCode::Endfinally) => {
-                    todo!();
-                },
                 Some(OpCode::Leave) => {
                     todo!();
                 },
@@ -1187,7 +1238,12 @@ impl Interpreter {
                     todo!();
                 },
                 Some(OpCode::Convu) => {
-                    todo!();
+                    let val = self.stack.pop_back().unwrap();
+                    if let ILType::Val(val) = val {
+                        self.stack.push_back(ILType::Val(ILValType::Isize(val.to_usize() as isize)));
+                    } else {
+                        panic!("convu: type mismatch");
+                    }
                 },
                 Some(OpCode::Next) => {
                     let op = reader.read_u8_immut(&mut rip).unwrap();
@@ -1253,7 +1309,13 @@ impl Interpreter {
                             todo!();
                         },
                         Some(OpCode2::Localloc) => {
-                            todo!();
+                            let size = self.stack.pop_back().unwrap();
+                            if let ILType::Val(val) = size {
+                                let size = val.to_usize();
+                                self.stack.push_back(ILType::NPtr(ILNPtr::new(size)));
+                            } else {
+                                panic!("localloc: type mismatch");
+                            }
                         },
                         Some(OpCode2::Endfilter) => {
                             todo!();

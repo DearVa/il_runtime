@@ -198,8 +198,7 @@ pub enum OpCode {
     Mulovfun,
     Subovf,
     Subovfun,
-    Endfault,
-    Endfinally,
+    Endfault,  // also Endfinally
     Leave,  // <int32 (target)>,
     Leaves,  // <int8 (target)>,
     Stindi,
@@ -220,14 +219,14 @@ pub enum OpCode2 {
     Cltun,
     Ldftn,          // <method>
     Ldvirtftn,      // <method>
-    Ldarg,          // <uint16 (num)>
+    Ldarg = 0x09,   // <uint16 (num)>
     Ldarga,         // <uint16 (argNum)>
     Starg,          // <uint16 (num)>
     Ldloc,          // <uint16 (indx)>
     Ldloca,         // <uint16 (indx)>
     Stloc,          // <uint16 (indx)>
     Localloc,
-    Endfilter,
+    Endfilter = 0x11,
     Unaligned,      // (alignment)
     Volatile,
     Tail,
@@ -237,7 +236,7 @@ pub enum OpCode2 {
     Initblk,
     No,
     Rethrow,
-    Sizeof,         // <typeTok>
+    Sizeof = 0x1C,  // <typeTok>
     Refanytype,
     Readonly,
 }
