@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use std::{io, ptr};
+use std::io;
 use std::fs::File;
 use std::io::prelude::*;
 use std::collections::{HashMap, VecDeque};
@@ -31,6 +31,8 @@ mod member_ref;
 use member_ref::*;
 mod standalone_sig;
 use standalone_sig::*;
+mod type_spec;
+use type_spec::*;
 mod assembly_ref;
 use assembly_ref::*;
 mod exported_type;
@@ -61,6 +63,7 @@ pub struct Assembly {
     pub params: Vec<Param>,                     //  (0x08000001...), Param
     pub member_refs: Vec<MemberRef>,            //  (0x0A000001...), MemberRef
     pub standalone_sigs: Vec<StandaloneSig>,    //  (0x11000001...), StandaloneSig
+    pub type_specs: Vec<TypeSpec>,              //  (0x1B000001...), TypeSpec 
     pub assembly_refs: Vec<AssemblyRef>,        //  (0x23000001...), AssemblyRef
     pub exported_types: HashVec<String, ExportedType>, // (0x27000001...), ExportedType
 }
@@ -93,6 +96,7 @@ impl Assembly {
 
         let member_refs = MemberRef::read_member_refs(&metadata)?;
         let standalone_sigs = StandaloneSig::read_standalone_sigs(&metadata)?;
+        let type_specs = TypeSpec::read_type_specs(&metadata)?;
         let assembly_refs = AssemblyRef::read_assembly_refs(&metadata)?;
         let exported_types = ExportedType::read_exported_types(&metadata)?;
 
@@ -131,31 +135,11 @@ impl Assembly {
             params,
             member_refs,
             standalone_sigs,
+            type_specs,
             assembly_refs,
             exported_types,
         })
     }
-
-    // fn update_field_list(assembly: &Rc<Assembly>, type_def_or_ref: u32, field_list: &mut HashMap<u32, u32>) {
-    //     if type_def_or_ref == 0 {
-    //         return;
-    //     }
-    //     let extends = match type_def_or_ref >> 24 {
-    //         0x01 => {  // TypeRef
-    //             let type_ref = assembly.type_refs.index_get(type_def_or_ref as usize & 0x00FFFFFF).unwrap();
-
-    //         },
-    //         0x02 => {  // TypeDef
-    //             let type_def = assembly.type_defs.index_get(type_def_or_ref as usize & 0x00FFFFFF).unwrap();
-    //             let field_list_rid_list = type_def.field_list_rid_list;
-    //             for rid in field_list_rid_list.iter() {
-    //                 field_list.insert(rid, field_list.len() as u32);
-    //             }
-    //             type_def.extends
-    //         },
-    //         _ => return,
-    //     }
-    // }
 
     pub fn load(assembly_name: &AssemblyName) -> io::Result<Assembly> {
         let assembly_path = format!("{}{}.dll", Self::NET5_PATH, assembly_name.name);
@@ -273,7 +257,7 @@ impl Interpreter {
             ILType::Ref(ILRefType::String(s)) => format!("{}", self.strings[*s as usize]),
             ILType::Val(v) => format!("{}", v.to_string()),
             ILType::Ptr(p) => format!("Ptr: {:?}", p),
-            ILType::NPtr(p) => format!("NPtr: {:?}", p),
+            ILType::NPtr(n) => format!("NPtr: {:?}", n),
         }
     }
     
@@ -284,7 +268,7 @@ impl Interpreter {
         assembly
     }
 
-    /// 解析给定的type_ref，如果其引用的Assembly未加载，那就加载它，返回usize为加载后assembly的index
+    /// 解析给定的type_ref，如果其引用的Assembly未加载，那就加载它，返回(type_def_index, 加载后assembly的index)
     fn resolve_type_ref(&mut self, ctx: &Context, type_ref_token: u32) -> (usize, usize) {
         let type_ref = ctx.assembly.type_refs.index_get((type_ref_token & 0x00FFFFFF) as usize - 1).unwrap();
         let mut assembly_index;
@@ -328,20 +312,20 @@ impl Interpreter {
         panic!("Cannot resolve type reference")
     }
 
-    /// 解析给定的type_token，可能是type_def或者type_ref，如果为type_ref，就可以自动加载Assembly
-    fn resolve_type_token(&mut self, ctx: &mut Context, type_ref_token: u32) -> usize {
-        if type_ref_token << 8 == 0 {
+    /// 解析给定的type_token，可能是type_def或者type_ref，如果为type_ref，就可以自动加载Assembly，返回为type_defs的index
+    fn resolve_type_def_or_ref(&mut self, ctx: &mut Context, type_def_or_ref_token: u32) -> usize {
+        if type_def_or_ref_token << 8 == 0 {
             return 0;
         }
-        match type_ref_token >> 24 {
+        match type_def_or_ref_token >> 24 {
             0x01 => {  // TypeRef
-                let resolve_result = self.resolve_type_ref(ctx, type_ref_token);
+                let resolve_result = self.resolve_type_ref(ctx, type_def_or_ref_token);
                 ctx.assembly = Rc::clone(self.assemblies.index_get(resolve_result.1).unwrap());
                 ctx.assembly_index = resolve_result.1;
                 resolve_result.0
             },
             0x02 => {  // TypeDef
-                (type_ref_token as usize & 0x00FFFFFF) - 1
+                (type_def_or_ref_token as usize & 0x00FFFFFF) - 1
             },
             _ => panic!("Not a type_def or type_ref"),
         }
@@ -390,7 +374,7 @@ impl Interpreter {
         let mut type_def_or_ref = type_def_or_ref;
         let mut ctx = ctx.make_temp();
         loop {
-            let type_def_index = self.resolve_type_token(&mut ctx, type_def_or_ref);
+            let type_def_index = self.resolve_type_def_or_ref(&mut ctx, type_def_or_ref);
             if type_def_index == 0 {
                 return;
             }
@@ -405,26 +389,42 @@ impl Interpreter {
         }
     }
 
-    /// 加载其他Assembly中的方法，更改ctx的Assembly并返回rid
-    fn load_dest_method(&mut self, ctx: &mut Context, method_token: u32) -> u32 {
+    /// 解析member_ref，如果需要则自动加载Assembly并更改ctx，返回为type_defs的index
+    fn resolve_member_ref(&mut self, ctx: &mut Context, member_ref_token: u32) -> usize {
         let assembly = Rc::clone(&ctx.assembly);
-        let member_ref = &assembly.member_refs[(method_token & 0x00FFFFFF) as usize - 1];
+        let member_ref = &assembly.member_refs[(member_ref_token & 0x00FFFFFF) as usize - 1];
         let name = member_ref.name.clone();
         let class = member_ref.class;
 
-        if (class >> 24) == 0x01 {  // TypeRef
-            let resolve_result = self.resolve_type_ref(ctx, class);
-            ctx.assembly = Rc::clone(self.assemblies.index_get(resolve_result.1).unwrap());
-            ctx.assembly_index = resolve_result.1;
-            let dest_type = ctx.assembly.type_defs.index_get(resolve_result.0 as usize).unwrap();
-            for dest_method_rid in dest_type.method_list.iter() {
-                let dest_method = &ctx.assembly.methods[dest_method_rid as usize - 1];
-                if dest_method.name == name && dest_method.signature == member_ref.signature {
-                    return dest_method_rid;
+        let type_def = match class >> 24 { 
+            0x01 => {  // TypeRef
+                let resolve_result = self.resolve_type_ref(ctx, class);
+                ctx.assembly = Rc::clone(self.assemblies.index_get(resolve_result.1).unwrap());
+                ctx.assembly_index = resolve_result.1;
+                resolve_result.0
+            },
+            0x02 => { // TypeDef
+                (class as usize & 0x00FFFFFF) - 1
+            },
+            0x1B => {  // TypeSpec，表示泛型
+                let type_spec = &ctx.assembly.type_specs[(class & 0x00FFFFFF) as usize - 1];
+                if let Some(TypeSig::GenericInstSig(sig)) = &type_spec.signature {
+                    let type_def_or_ref_token = sig.unwarp_token();
+                    self.resolve_type_def_or_ref(ctx, type_def_or_ref_token)
+                } else {
+                    panic!("Invalid TypeSpec")
                 }
+            },
+            _ => panic!("Invalid member_ref class"),
+        };
+        let dest_type = ctx.assembly.type_defs.index_get(type_def as usize).unwrap();
+        for dest_method_rid in dest_type.method_list.iter() {
+            let dest_method = &ctx.assembly.methods[dest_method_rid as usize - 1];
+            if dest_method.name == name && dest_method.signature == member_ref.signature {
+                return dest_method_rid as usize - 1;
             }
         }
-        panic!("Invalid method_token")
+        panic!("Invalid member_ref_token");
     }
 
     /// 通过method_token或者member_ref_token获取method的index
@@ -434,7 +434,7 @@ impl Interpreter {
                 (token & 0x00FFFFFF) as usize - 1
             },
             0x0A => {  // 需要先找到MemberRef，再找到TypeRef，最后定位到AssemblyRef
-                self.load_dest_method(ctx, token) as usize - 1
+                self.resolve_member_ref(ctx, token)
             },
             _ => panic!("Invalid method_token")
         }
@@ -922,11 +922,11 @@ impl Interpreter {
                         ILType::Ref(ILRefType::Object(index)) => {
                             let obj_type_token = self.objects[index].get_type();
                             let mut temp_ctx = ctx.make_temp();
-                            let obj_type_index = self.resolve_type_token(&mut temp_ctx, obj_type_token);
+                            let obj_type_index = self.resolve_type_def_or_ref(&mut temp_ctx, obj_type_token);
                             let obj_type = ctx.assembly.type_defs.index_get(obj_type_index).expect("TypeLoadException");
                             let mut extends = obj_type.extends;
                             while extends != 0 {
-                                let extends_index = self.resolve_type_token(&mut temp_ctx, obj_type_token);
+                                let extends_index = self.resolve_type_def_or_ref(&mut temp_ctx, obj_type_token);
                                 let extends_type = ctx.assembly.type_defs.index_get(extends_index).expect("TypeLoadException");
                                 if extends_type.token == type_token {
                                     self.objects[index].type_token = type_token;
@@ -965,7 +965,7 @@ impl Interpreter {
                                 ILRefType::Null => {
                                     panic!("Null reference exception.");
                                 },
-                                ILRefType::String(index) => {
+                                ILRefType::String(_) => {
                                     todo!();
                                 },
                                 ILRefType::Object(index) => {
@@ -992,11 +992,11 @@ impl Interpreter {
                                 ILRefType::Null => {
                                     panic!("Null reference exception.");
                                 },
-                                ILRefType::String(str_index) => {
+                                ILRefType::String(_) => {
                                     todo!();
                                 },
-                                ILRefType::Object(obj_index) => {
-                                    let obj = &mut self.objects[obj_index];
+                                ILRefType::Object(index) => {
+                                    let obj = &mut self.objects[index];
                                     obj.set_field(token, value);
                                 },
                             }

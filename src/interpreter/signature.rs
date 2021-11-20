@@ -33,7 +33,7 @@ bitflags! {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CallingConventionSig {
     FieldSig(FieldSig),
     MethodSig(MethodSig),
@@ -49,11 +49,10 @@ impl CallingConventionSig {
         }
     }
 
-    pub fn read_metadata_sig(metadata: &Metadata, signature: u32) -> Option<CallingConventionSig> {
-        let data = metadata.blob_stream.read(signature).unwrap();
-        let reader = DataReader::new(data);
+    /// 给定signature（即BlobStream偏移），解析出CallingConventionSig
+    pub fn resolve_sig(metadata: &Metadata, signature: u32) -> Option<CallingConventionSig> {
         let mut offset = 0;
-        Self::read_sig(&reader, &mut offset)
+        Self::read_sig(&metadata.blob_stream.create_reader(signature).unwrap(), &mut offset)
     }
 
     pub fn read_sig(reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
@@ -91,14 +90,14 @@ impl CallingConventionSig {
     }
 
     fn read_field(calling_convention: CallingConvention, reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
-        Some(CallingConventionSig::FieldSig(FieldSig::new(calling_convention, TypeSig::read_type(reader, offset))))
+        Some(CallingConventionSig::FieldSig(FieldSig::new(calling_convention, TypeSig::read_sig(reader, offset))))
     }
 
     fn read_local_sig(calling_convention: CallingConvention, reader: &DataReader, offset: &mut usize) -> Option<CallingConventionSig> {
         let count =  reader.try_read_compressed_u32_immut(offset)?;
         let mut sig = LocalSig::new(calling_convention, count as usize);
         for _ in 0..count {
-            sig.locals.push(TypeSig::read_type(reader, offset).unwrap());
+            sig.locals.push(TypeSig::read_sig(reader, offset).unwrap());
         }
         Some(CallingConventionSig::LocalSig(sig))
     }
@@ -117,9 +116,9 @@ impl CallingConventionSig {
             method_sig.base.gen_param_count = count;
         }
         let param_count = reader.try_read_compressed_u32_immut(offset)?;
-        method_sig.base.ret_type = TypeSig::read_type(reader, offset);
+        method_sig.base.ret_type = TypeSig::read_sig(reader, offset);
         for _ in 0..param_count {
-            match TypeSig::read_type(reader, offset) {
+            match TypeSig::read_sig(reader, offset) {
                 Some(TypeSig::SentinelSig(_)) => {
                     if !method_sig.base.is_sentinel {
                         method_sig.base.is_sentinel = true;
@@ -135,7 +134,7 @@ impl CallingConventionSig {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CallingConventionSigBase {
     pub calling_convention: CallingConvention,
     pub extra_data: Vec<u8>,
@@ -199,7 +198,7 @@ impl CallingConventionSigBase {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FieldSig {
     pub base: CallingConventionSigBase,
     pub type_sig: Option<TypeSig>,
@@ -214,7 +213,7 @@ impl FieldSig {
     }
 }
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct MethodBaseSig {
     pub base: CallingConventionSigBase,
     pub ret_type: Option<TypeSig>,
@@ -236,7 +235,7 @@ impl MethodBaseSig {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MethodSig {
     pub base: MethodBaseSig,
     pub origin_token: u32,
@@ -262,7 +261,7 @@ impl MethodSig {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct LocalSig {
     pub base: CallingConventionSigBase,
     pub locals: Vec<TypeSig>,

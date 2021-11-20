@@ -29,7 +29,7 @@ impl Field {
 
             let flags = field_table.columns[0].get_cell_u16(row);
             let name = metadata.strings_stream.get_string_clone(field_table.columns[1].get_cell_u16_or_u32(row))?;
-            let signature = CallingConventionSig::read_metadata_sig(metadata, field_table.columns[2].get_cell_u16_or_u32(row));
+            let signature = CallingConventionSig::resolve_sig(metadata, field_table.columns[2].get_cell_u16_or_u32(row));
 
             fields.push(Field {
                 token: 0x04000001 + row as u32,

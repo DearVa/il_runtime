@@ -3,17 +3,16 @@ use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
 use crate::interpreter::data_reader::DataReader;
-use super::{metadata::{md_token::{CodedToken, MDToken}, table_stream::{MDType, MDTableType}}, signature::CallingConventionSig};
+use super::{metadata::{Metadata, md_token::CodedToken, table_stream::{MDType, MDTableType}}, signature::CallingConventionSig};
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TypeSig {
     TypeSig(TypeSigBase),
     LeafSig(LeafSig),
     TypeDefOrRefSig(TypeDefOrRefSig),
     CorLibTypeSig(CorLibType),
-    ClassOrValueTypeSig(ClassOrValueTypeSig),
-    ValueTypeSig(Option<ClassOrValueTypeSig>),
-    ClassSig(Option<ClassOrValueTypeSig>),
+    ValueTypeSig(ClassOrValueTypeSig),
+    ClassSig(ClassOrValueTypeSig),
     GenericSig(GenericSig),
     GenericVar(GenericSig),
     GenericMVar(GenericSig),
@@ -26,8 +25,8 @@ pub enum TypeSig {
     ArraySig(ArraySig),
     SZArraySig(ArraySigBase),
     ModifierSig(ModifierSig),
-    CModReqdSig(NoLeafSig),
-    CModOptSig(NoLeafSig),
+    CModReqdSig(ModifierSig),
+    CModOptSig(ModifierSig),
     PinnedSig(NoLeafSig),
     ValueArraySig(ValueArraySig),
     ModuleSig(ModuleSig),
@@ -36,7 +35,13 @@ pub enum TypeSig {
 impl TypeSig {
     const MAX_ARRAY_RANK: u32 = 64;
 
-    pub fn read_type(reader: &DataReader, offset: &mut usize) -> Option<TypeSig> {
+    /// 给定signature（即BlobStream偏移），解析出TypeSig
+    pub fn resolve_sig(metadata: &Metadata, signature: u32) -> Option<TypeSig> {
+        let mut offset = 0;
+        Self::read_sig(&metadata.blob_stream.create_reader(signature).unwrap(), &mut offset)
+    }
+
+    pub fn read_sig(reader: &DataReader, offset: &mut usize) -> Option<TypeSig> {
         match reader.read_u8_immut(offset) {
             Ok(val) => {
                 match FromPrimitive::from_u8(val) {
@@ -59,16 +64,28 @@ impl TypeSig {
                     Some(ElementType::U) => Some(TypeSig::CorLibTypeSig(CorLibType::UIntPtr)),
                     Some(ElementType::Object) => Some(TypeSig::CorLibTypeSig(CorLibType::Object)),
 
-                    Some(ElementType::Ptr) => Some(TypeSig::PtrSig(NoLeafSig::new(Self::read_type(reader, offset)))),
-                    Some(ElementType::ByRef) => Some(TypeSig::ByRefSig(NoLeafSig::new(Self::read_type(reader, offset)))),
+                    Some(ElementType::Ptr) => Some(TypeSig::PtrSig(NoLeafSig::new(Self::read_sig(reader, offset)))),
+                    Some(ElementType::ByRef) => Some(TypeSig::ByRefSig(NoLeafSig::new(Self::read_sig(reader, offset)))),
                     Some(ElementType::ValueType) => Some(TypeSig::ValueTypeSig(Self::read_class_or_value_type(false, reader, offset))),
                     Some(ElementType::Class) => Some(TypeSig::ClassSig(Self::read_class_or_value_type(false, reader, offset))),
                     Some(ElementType::FnPtr) => Some(TypeSig::FnPtrSig(FnPtrSig::new(CallingConventionSig::read_sig(reader, offset)))),
-                    Some(ElementType::SZArray) => Some(TypeSig::SZArraySig(ArraySigBase::new(Self::read_type(reader, offset), 0))),
-                    Some(ElementType::CModReqd) => Some(TypeSig::CModReqdSig(NoLeafSig::new(Self::read_type(reader, offset)))),
-                    Some(ElementType::CModOpt) => Some(TypeSig::CModOptSig(NoLeafSig::new(Self::read_type(reader, offset)))),
+                    Some(ElementType::SZArray) => Some(TypeSig::SZArraySig(ArraySigBase::new(Self::read_sig(reader, offset), 0))),
+                    Some(ElementType::CModReqd) => {
+                        let token = match Self::read_type_def_or_ref(true, reader, offset) {
+                            Some(val) => val.token,
+                            None => 0,
+                        };
+                        Some(TypeSig::CModReqdSig(ModifierSig::new(token, Self::read_sig(reader, offset))))
+                    },
+                    Some(ElementType::CModOpt) => {
+                        let token = match Self::read_type_def_or_ref(true, reader, offset) {
+                            Some(val) => val.token,
+                            None => 0,
+                        };
+                        Some(TypeSig::CModOptSig(ModifierSig::new(token, Self::read_sig(reader, offset))))
+                    },
                     Some(ElementType::Sentinel) => Some(TypeSig::SentinelSig(LeafSig::default())),
-                    Some(ElementType::Pinned) => Some(TypeSig::PinnedSig(NoLeafSig::new(Self::read_type(reader, offset)))),
+                    Some(ElementType::Pinned) => Some(TypeSig::PinnedSig(NoLeafSig::new(Self::read_sig(reader, offset)))),
                 
                     Some(ElementType::Var) => {
                         let num = reader.try_read_compressed_u32_immut(offset)?;
@@ -79,31 +96,32 @@ impl TypeSig {
                         Some(TypeSig::GenericMVar(GenericSig::new(false, num, 0)))
                     },
                     Some(ElementType::ValueArray) => {
-                        let next_type = Self::read_type(reader, offset);
+                        let next_type = Self::read_sig(reader, offset);
                         let num = reader.try_read_compressed_u32_immut(offset)?;
                         Some(TypeSig::ValueArraySig(ValueArraySig::new(next_type, num)))
                     },
                     Some(ElementType::Module) => {
                         let num =  reader.try_read_compressed_u32_immut(offset)?;
-                        Some(TypeSig::ModuleSig(ModuleSig::new(num, Self::read_type(reader, offset))))
+                        Some(TypeSig::ModuleSig(ModuleSig::new(num, Self::read_sig(reader, offset))))
                     },
                     Some(ElementType::GenericInst) => {
-                        let next_type = Self::read_type(reader, offset)?;
+                        let next_type = Self::read_sig(reader, offset)?;
                         let num =  reader.try_read_compressed_u32_immut(offset)?;
                         let generic_type = match next_type {
-                            TypeSig::ClassOrValueTypeSig(generic_type) => {
+                            TypeSig::ClassSig(generic_type) |
+                            TypeSig::ValueTypeSig(generic_type) => {
                                 Some(generic_type)
                             },
                             _ => None
                         };
                         let mut args = Vec::with_capacity(num as usize);
                         for _ in 0..num {
-                            args.push(Box::new(Self::read_type(reader, offset)?));
+                            args.push(Box::new(Self::read_sig(reader, offset)?));
                         }
                         Some(TypeSig::GenericInstSig(GenericInstSig::new(generic_type, args)))
                     },
                     Some(ElementType::Array) => {
-                        let next_type = Self::read_type(reader, offset);
+                        let next_type = Self::read_sig(reader, offset);
                         let rank = reader.try_read_compressed_u32_immut(offset)?;
                         if rank > Self::MAX_ARRAY_RANK {
                             return None;
@@ -144,23 +162,26 @@ impl TypeSig {
 
     fn read_type_def_or_ref(allow_type_spec: bool, reader: &DataReader, offset: &mut usize) -> Option<TypeDefOrRefSig> {
         let coded_token =  reader.try_read_compressed_u32_immut(offset)?;
-        match CodedToken::from_md_type(MDType::TypeDefOrRef).decode_as_md_table_type(coded_token) {
+        let coded_token_md = CodedToken::from_md_type(MDType::TypeDefOrRef);
+        match coded_token_md.decode_as_md_table_type(coded_token) {
             None => None,
             Some(table_type) => {
-                if !allow_type_spec && table_type == MDTableType::TypeDef {
+                if !allow_type_spec && table_type == MDTableType::TypeSpec {
                     None
                 } else {
-                    Some(TypeDefOrRefSig::new(MDToken::to_table_type(coded_token)))
+                    match coded_token_md.decode(coded_token) {
+                        None => None,
+                        Some(type_def_or_ref) => Some(TypeDefOrRefSig::new(type_def_or_ref))
+                    }
                 }
             },
         }
     }
 
-    fn read_class_or_value_type(allow_type_spec: bool, reader: &DataReader, offset: &mut usize) -> Option<ClassOrValueTypeSig> {
-        let type_def_or_ref = Self::read_type_def_or_ref(allow_type_spec, reader, offset)?;
-        Some(ClassOrValueTypeSig {
-            base: type_def_or_ref
-        })
+    fn read_class_or_value_type(allow_type_spec: bool, reader: &DataReader, offset: &mut usize) -> ClassOrValueTypeSig {
+        ClassOrValueTypeSig {
+            base: Self::read_type_def_or_ref(allow_type_spec, reader, offset)
+        }
     }
 }
 
@@ -274,7 +295,7 @@ pub enum CorLibType {
     Object,
 }
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct TypeSigBase {
     pub rid: u32,
 }
@@ -287,13 +308,13 @@ impl TypeSigBase {
     }
 }
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct LeafSig {
     pub base: TypeSigBase,
     pub next : Option<Box<TypeSig>>,
 }
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct TypeDefOrRefSig {
     pub base: LeafSig,
     // 这条指向TypeDef或者TypeRef表的一项
@@ -310,22 +331,22 @@ impl TypeDefOrRefSig {
 }
 
 /// 特殊，初始化时仅仅记录cor_lib_type，TypeDefOrRefSig需要解析
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CorLibTypeSig {
     pub base: TypeDefOrRefSig,
     pub cor_lib_type: CorLibType,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ClassOrValueTypeSig {
-    pub base: TypeDefOrRefSig,
+    pub base: Option<TypeDefOrRefSig>,
 }
 
 // ValueTypeSig省略，继承ClassOrValueTypeSig而没有新成员
 
 // ClassSig省略，继承ClassOrValueTypeSig而没有新成员
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct GenericSig {
     pub base: LeafSig,
     pub is_type_var: bool,
@@ -351,7 +372,7 @@ impl GenericSig {
 
 // SentinelSig省略，继承LeafSig而没有新成员
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FnPtrSig {
     pub base: LeafSig,
     pub calling_convention_sig: Option<Box<CallingConventionSig>>,
@@ -369,11 +390,17 @@ impl FnPtrSig {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct GenericInstSig {
     pub base: LeafSig,
     pub generic_type: Option<ClassOrValueTypeSig>,
     pub generic_args: Vec<Box<TypeSig>>,
+}
+
+impl GenericInstSig {
+    pub fn unwarp_token(&self) -> u32 {
+        self.generic_type.as_ref().unwrap().base.as_ref().unwrap().token
+    }
 }
 
 impl GenericInstSig {
@@ -386,7 +413,7 @@ impl GenericInstSig {
     }
 }
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct NoLeafSig {
     pub base: TypeSigBase,
     pub nextSig : Option<Box<TypeSig>>,
@@ -408,7 +435,7 @@ impl NoLeafSig {
 
 // ByRefSig省略，继承NoLeafSig而没有新成员
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct ArraySigBase {
     pub base: NoLeafSig,
     pub rank: u32,
@@ -423,7 +450,7 @@ impl ArraySigBase {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ArraySig {
     pub base: ArraySigBase,
     pub sizes: Vec<u32>,
@@ -450,11 +477,20 @@ impl ArraySig {
 
 // SZArraySig省略，继承ArraySigBase而没有新成员
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ModifierSig {
     pub base: NoLeafSig,
     /// ITypeOrMethodDef
     pub modifier: u32,
+}
+
+impl ModifierSig {
+    pub fn new(modifier: u32, next_sig: Option<TypeSig>) -> ModifierSig {
+        ModifierSig {
+            base: NoLeafSig::new(next_sig),
+            modifier,
+        }
+    }
 }
 
 // CModReqdSig省略，继承ModifierSig而没有新成员
@@ -463,7 +499,7 @@ pub struct ModifierSig {
 
 // PinnedSig省略，继承NonLeafSig而没有新成员
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ValueArraySig {
     pub base: NoLeafSig,
     pub size: u32,
@@ -478,7 +514,7 @@ impl ValueArraySig {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ModuleSig {
     pub base: NoLeafSig,
     pub index: u32,

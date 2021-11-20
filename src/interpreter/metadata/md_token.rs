@@ -69,7 +69,7 @@ impl CodedToken {
         Some(((self.table_types[index as usize] as u32) << MDToken::TABLE_SHIFT) | rid)
     }
 
-    pub fn decode_as_md_table_type(&mut self, coded_token: u32) -> Option<MDTableType> {
+    pub fn decode_as_md_table_type(&self, coded_token: u32) -> Option<MDTableType> {
         match self.decode(coded_token) {
             Some(token) => FromPrimitive::from_u8(MDToken::to_table_type(token) as u8),
             None => None,

@@ -1,4 +1,5 @@
 use std::io;
+use likely_stable::unlikely;
 
 use crate::hash_vec::HashVec;
 use super::metadata::{Metadata, RidList, md_token::CodedToken, table_stream::MDType};
@@ -24,9 +25,9 @@ impl TypeDef {
             let extends = CodedToken::from_md_type(MDType::TypeDefOrRef).decode(type_def_table.columns[3].get_cell_u16(row) as u32).unwrap();
             let field_list = metadata.get_field_rid_list(row + 1);
             let method_list = metadata.get_method_rid_list(row + 1);
-            let full_name = namespace.clone() + "." + &name;
 
-            type_defs.insert(full_name, TypeDef { 
+            let full_name = namespace.clone() + "." + &name;
+            let type_def = TypeDef { 
                 token: 0x02000001 + row as u32,
                 flags, 
                 name, 
@@ -34,7 +35,24 @@ impl TypeDef {
                 extends,
                 field_list,
                 method_list,
-            });
+            };
+
+            if unlikely(type_defs.contains(&full_name)) {  // 有些时候可能存在相同的fullname（就nm离谱）
+                let mut final_full_name;
+                let mut post_fix: u32 = 0;
+                loop {
+                    post_fix += 1;
+                    final_full_name = full_name.clone();
+                    final_full_name.push_str(&format!("`{}", post_fix));
+                    if !type_defs.contains(&final_full_name) {
+                        break;
+                    }
+                }
+                println!("Same Type_def!! {}", final_full_name);
+                type_defs.insert(final_full_name, type_def);
+            } else {
+                type_defs.insert(full_name, type_def);
+            }
         }
         
         Ok(type_defs)

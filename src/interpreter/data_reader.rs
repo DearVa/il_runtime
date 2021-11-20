@@ -27,6 +27,15 @@ impl DataReader {
         })
     }
 
+    /// 将reader从position位置切下size大小的数据，生成一个独立的reader
+    pub fn slice_from(&self, position: usize, size: usize) -> io::Result<DataReader> {
+        self.check_position(position, size)?;
+        Ok(DataReader {
+            data: self.data[position..(position + size)].to_vec(),
+            position: 0,
+        })
+    }
+
     pub fn check_position(&self, position: usize, size: usize) -> io::Result<()> {
         if position + size > self.data.len() {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Unexpected end of image"));

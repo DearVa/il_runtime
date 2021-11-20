@@ -94,7 +94,7 @@ impl Method {
                 flags,
                 // namespace: metadata.table_stream.md_tables[2].get_cell_string(method_table.columns[3].get_cell_u32(row))?,
                 name: metadata.strings_stream.get_string_clone(method_table.columns[3].get_cell_u16_or_u32(row))?,
-                signature: CallingConventionSig::read_metadata_sig(metadata, method_table.columns[4].get_cell_u16_or_u32(row)),
+                signature: CallingConventionSig::resolve_sig(metadata, method_table.columns[4].get_cell_u16_or_u32(row)),
                 param_list: metadata.get_param_rid_list(row + 1),
                 owner_type: type_map_index as u32 - 1,
 

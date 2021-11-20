@@ -28,6 +28,10 @@ impl<K, V> HashVec<K, V> where K: Eq + Hash {
         self.vec.iter()
     }
 
+    pub fn contains(&self, key: &K) -> bool {
+        self.map.contains_key(key)
+    }
+
     pub fn key_get(&self, key: &K) -> Option<&V> {
         let index = *self.map.get(key)?;
         if index > self.vec.len() {
